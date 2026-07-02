@@ -102,6 +102,86 @@ Config for `penv dev-backend`. Opens one tmux window per pane group.
 
 ---
 
+## sessions[]
+
+Flexible alternative to `dev_ui` / `dev_backend`.  Used by `penv dev-session`.
+
+Each entry describes one named tmux session with any number of tabs (tmux windows), each laid out in an **at most 2-column grid** with unlimited rows.  Grid positions not covered by a configured pane become idle shells automatically.
+
+```json
+{
+  "sessions": [
+    {
+      "session_name": "myproject-dev",
+      "tabs": [
+        {
+          "name": "backend",
+          "panes": [
+            { "repo": "my-api",  "cmd": "npm install && npm run dev", "col": 0, "row": 0 },
+            { "repo": "my-ui",   "cmd": "npm install && npm run dev", "col": 0, "row": 1 },
+            { "repo": "my-ui",   "cmd": "npm run storybook",          "col": 1, "row": 1 }
+          ]
+        },
+        {
+          "name": "services",
+          "panes": [
+            { "repo": "my-other", "cmd": "python -m uvicorn app:app --reload", "col": 0, "row": 0 }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+The example above produces the following layout in the **backend** window:
+
+```
+┌──────────────────┬──────────────────┐
+│ my-api dev  r0c0 │  (idle shell)    │  ← col 1 row 0 — not configured → empty shell
+├──────────────────┤  r0c1            │
+│ my-ui dev   r1c0 ├──────────────────┤
+│                  │ my-ui storybook  │  ← r1c1
+└──────────────────┴──────────────────┘
+```
+
+The idle shell at `(col=1, row=0)` receives the `show-info` / `close_session` / `reload_env` helper script.
+
+### `sessions[]` fields
+
+| Field | Description |
+|---|---|
+| `session_name` | tmux session name |
+| `tabs[]` | Ordered list of tmux windows |
+
+### `tabs[]` fields
+
+| Field | Description |
+|---|---|
+| `name` | Window name shown in the tmux status bar |
+| `panes[]` | Pane definitions placed into the grid |
+
+### `panes[]` fields
+
+| Field | Default | Description |
+|---|---|---|
+| `col` | `0` | Column index — `0` (left) or `1` (right). Values above 1 are clamped to 1. |
+| `row` | `0` | Row index — `0` is the top row. |
+| `repo` | `""` | Repo folder name (relative to `repo_parent()`). Empty = working dir is `repo_parent()`. |
+| `cmd` | `""` | Shell command to run. Empty = idle shell (no command sent). |
+
+**Gap rule:** if `n_cols` or `n_rows` in the grid is larger than the number of configured panes, every uncovered `(row, col)` position is created as an idle shell.  The first such position found (row-major order) receives the session helper script.
+
+**Command:** `penv dev-session [--session <name>] [--preset <name>] [--attach]`
+
+| Flag | Description |
+|---|---|
+| `--session <name>` | Required when more than one session is in `sessions[]` |
+| `--preset <name>` | Override the active preset; omit to prompt |
+| `--attach` | Reattach to an existing session instead of creating a new one |
+
+---
+
 ## settings.local.json
 
 Personal overrides — never committed. Created by `penv setup-wizard` or written manually.

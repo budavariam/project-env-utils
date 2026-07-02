@@ -162,7 +162,72 @@ pub fn setup_claude_window(
     ])
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
+// ── Grid layout ────────────────────────────────────────────────────────────────
+
+/// Build a 2-column grid of panes for one tmux window.
+///
+/// `first_pane` is the pane ID that already exists (created by `new-session` or
+/// `new-window`).  The function splits it into the requested `n_rows × n_cols`
+/// grid and returns `grid[row][col]` pane IDs.
+///
+/// Grid positions not wired to a command by the caller become idle shells —
+/// they are created but never receive `send-keys`.
+///
+/// # Layout
+/// ```text
+/// n_cols=1: left column only, rows split vertically.
+/// n_cols=2: left column and right column, each row split vertically.
+///
+///   | col 0   | col 1   |
+///   | row 0   | row 0   |   ← first_pane + 1 h-split
+///   | row 1   | row 1   |   ← 2 v-splits
+///   | row 2   | row 2   |   ← 2 v-splits …
+/// ```
+pub fn build_tab_panes(
+    first_pane: &str,
+    n_rows: usize,
+    n_cols: usize,
+    default_dir: &str,
+) -> Result<Vec<Vec<String>>> {
+    let n_cols = n_cols.max(1).min(2);
+    let n_rows = n_rows.max(1);
+
+    let mut grid = vec![vec![String::new(); n_cols]; n_rows];
+    grid[0][0] = first_pane.to_string();
+
+    if n_cols == 2 {
+        let p = tmux_output(&[
+            "split-window", "-h", "-l", "50%", "-t", first_pane,
+            "-c", default_dir, "-P", "-F", "#{pane_id}",
+        ])?;
+        if p.is_empty() { anyhow::bail!("build_tab_panes: h-split returned empty pane id"); }
+        grid[0][1] = p;
+    }
+
+    for row in 1..n_rows {
+        let prev_left = grid[row - 1][0].clone();
+        let p = tmux_output(&[
+            "split-window", "-v", "-l", "50%", "-t", &prev_left,
+            "-c", default_dir, "-P", "-F", "#{pane_id}",
+        ])?;
+        if p.is_empty() { anyhow::bail!("build_tab_panes: v-split (col 0, row {}) returned empty pane id", row); }
+        grid[row][0] = p;
+
+        if n_cols == 2 {
+            let prev_right = grid[row - 1][1].clone();
+            let p = tmux_output(&[
+                "split-window", "-v", "-l", "50%", "-t", &prev_right,
+                "-c", default_dir, "-P", "-F", "#{pane_id}",
+            ])?;
+            if p.is_empty() { anyhow::bail!("build_tab_panes: v-split (col 1, row {}) returned empty pane id", row); }
+            grid[row][1] = p;
+        }
+    }
+
+    Ok(grid)
+}
+
+
 
 #[cfg(test)]
 mod tests {

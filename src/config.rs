@@ -24,6 +24,42 @@ pub struct SessionPaneConfig {
     pub cmd: String,
 }
 
+/// One pane in a flexible grid layout — at most 2 columns, unlimited rows.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct GridPaneConfig {
+    /// Repo folder name relative to `repo_parent()`. Empty = working dir stays at repo_parent().
+    #[serde(default)]
+    pub repo: String,
+    /// Command to run in the pane. Empty = idle shell.
+    #[serde(default)]
+    pub cmd: String,
+    /// 0-based column index (0 or 1 — capped at 1).
+    #[serde(default)]
+    pub col: usize,
+    /// 0-based row index.
+    #[serde(default)]
+    pub row: usize,
+}
+
+/// One tmux window (tab) within a session.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TabConfig {
+    /// Window name shown in the tmux status bar.
+    #[serde(default)]
+    pub name: String,
+    /// Panes to place in the grid. Gaps become idle shells automatically.
+    #[serde(default)]
+    pub panes: Vec<GridPaneConfig>,
+}
+
+/// A fully described tmux session using the flexible grid layout.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SessionConfig {
+    pub session_name: String,
+    #[serde(default)]
+    pub tabs: Vec<TabConfig>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct DevUiConfig {
     pub repo: String,
@@ -62,6 +98,8 @@ pub struct ProjectConfig {
     pub dev_ui: DevUiConfig,
     pub dev_backend: DevBackendConfig,
     pub claude: ClaudeSessionConfig,
+    /// Flexible grid sessions (used by `penv dev-session`).
+    pub sessions: Vec<SessionConfig>,
 }
 
 // ── Runtime paths ──────────────────────────────────────────────────────────────
@@ -236,6 +274,8 @@ fn parse_project(json: &serde_json::Value) -> ProjectConfig {
         dev_backend: DevBackendConfig,
         #[serde(default)]
         claude: ClaudeSessionConfig,
+        #[serde(default)]
+        sessions: Vec<SessionConfig>,
     }
     #[derive(Deserialize, Default)]
     struct RawProject {
@@ -259,6 +299,7 @@ fn parse_project(json: &serde_json::Value) -> ProjectConfig {
         dev_ui: raw.dev_ui,
         dev_backend: raw.dev_backend,
         claude: raw.claude,
+        sessions: raw.sessions,
     }
 }
 

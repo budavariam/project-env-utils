@@ -105,6 +105,18 @@ enum Command {
         #[arg(long)]
         attach: bool,
     },
+
+    /// Launch a custom grid session defined in settings.json under 'sessions'
+    DevSession {
+        /// Session name (required when more than one session is configured)
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        preset: Option<String>,
+        /// Attach to an existing session instead of creating a new one
+        #[arg(long)]
+        attach: bool,
+    },
 }
 
 
@@ -207,6 +219,15 @@ fn main() {
                 select: *select,
                 resume: *resume,
                 resume_branch: resume_branch.clone(),
+                attach: *attach,
+            },
+            &settings,
+        ),
+
+        Command::DevSession { session, preset, attach } => cmd::dev_session::run(
+            &cmd::dev_session::DevSessionArgs {
+                session_name: session.clone(),
+                preset: preset.clone(),
                 attach: *attach,
             },
             &settings,

@@ -55,6 +55,7 @@ See [docs/setup.md](docs/setup.md) for a complete walkthrough.
 | `penv load-env <preset>` | Load a preset into service repos |
 | `penv dev-ui` | Launch a configured tmux UI session |
 | `penv dev-backend` | Launch a configured tmux backend session |
+| `penv dev-session` | Launch a flexible grid session defined in `sessions[]` |
 
 ## Documentation
 

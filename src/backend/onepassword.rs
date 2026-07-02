@@ -85,6 +85,7 @@ impl OpBackend {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn item_exists(&self, title: &str) -> bool {
         let (ok, _, _) = self.run(&[
             "op", "item", "get", title,
