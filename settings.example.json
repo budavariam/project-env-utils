@@ -1,0 +1,32 @@
+{
+  "project": {
+    "name": "MyProject",
+    "op_vault": "MyProject Dev",
+    "op_item_prefix": "myproject",
+    "bucket": ""
+  },
+  "services": [
+    {
+      "name": "my-api",
+      "description": "Backend API service",
+      "env_vars": ["NODE_ENV", "POSTGRES_HOST", "REDIS_HOST"]
+    },
+    {
+      "name": "my-ui",
+      "description": "Frontend application",
+      "env_vars": ["VITE_API_URL"]
+    }
+  ],
+  "dev_ui": {
+    "repo": "my-ui",
+    "pane_dev_cmd": "npm install && npm run dev",
+    "pane_sb_cmd": "npm run storybook"
+  },
+  "dev_backend": {
+    "session_name": "myproject-backend",
+    "window_backend": [
+      { "repo": "my-api", "cmd": "npm install && npm run dev" }
+    ],
+    "window_service": []
+  }
+}
