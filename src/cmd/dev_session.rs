@@ -10,7 +10,7 @@ use crate::cmd::worktree::write_close_session_script;
 use crate::config::{repo_parent, repo_root, Settings};
 use crate::tmux::{
     build_tab_panes, exec_tmux_attach, first_pane_id, sessions_with_prefix,
-    setup_claude_window, tmux, tmux_send_keys, tmux_session_exists,
+    setup_linked_window, tmux, tmux_send_keys, tmux_session_exists,
 };
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
 
     // ── Claude window + attach ────────────────────────────────────────────────
 
-    setup_claude_window(session, &settings.project.claude)?;
+    setup_linked_window(session, &settings.project.claude)?;
 
     tmux(&["select-window", "-t", &format!("{}:0", session)])?;
     exec_tmux_attach(session);

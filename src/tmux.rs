@@ -120,46 +120,44 @@ pub fn first_pane_id(session: &str, window_index: u32) -> Result<String> {
 
 // ── Session setup helpers ──────────────────────────────────────────────────────
 
-/// Create (or reuse) a named Claude tmux session and link its window into the
-/// given dev session.  When `claude_cfg` is disabled this is a no-op.
-pub fn setup_claude_window(
+/// Link an external tmux session's window into the given dev session as a new tab.
+///
+/// If the external session does not yet exist it is created automatically and
+/// `cfg.cmd` (or `cfg.session_name` when cmd is empty) is sent to it.
+/// When `cfg` is disabled this is a no-op.
+pub fn setup_linked_window(
     session: &str,
-    claude_cfg: &crate::config::ClaudeSessionConfig,
+    cfg: &crate::config::LinkedWindowConfig,
 ) -> Result<()> {
-    if !claude_cfg.enabled {
+    if !cfg.enabled {
         return Ok(());
     }
 
-    let session_name = "claude";
-    let start_dir = if claude_cfg.start_dir.is_empty() {
-        ".".to_string()
-    } else if claude_cfg.start_dir.starts_with("~/") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{}{}", home, &claude_cfg.start_dir[1..])
-    } else {
-        claude_cfg.start_dir.clone()
-    };
+    let ext_session = if cfg.session_name.is_empty() { "claude" } else { cfg.session_name.as_str() };
+    let window     = if cfg.window.is_empty() { ext_session } else { cfg.window.as_str() };
+    let cmd        = if cfg.cmd.is_empty()    { ext_session } else { cfg.cmd.as_str() };
+    let start_dir  = resolve_start_dir(&cfg.start_dir);
 
-    if !tmux_session_exists(session_name) {
-        tmux(&[
-            "new-session",
-            "-d",
-            "-s",
-            session_name,
-            "-n",
-            "claude",
-            "-c",
-            &start_dir,
-        ])?;
-        tmux_send_keys(&format!("{}:claude", session_name), "claude")?;
+    if !tmux_session_exists(ext_session) {
+        tmux(&["new-session", "-d", "-s", ext_session, "-n", window, "-c", &start_dir])?;
+        tmux_send_keys(&format!("{}:{}", ext_session, window), cmd)?;
     }
     tmux(&[
         "link-window",
-        "-s",
-        &format!("{}:claude", session_name),
-        "-t",
-        &format!("{}:", session),
+        "-s", &format!("{}:{}", ext_session, window),
+        "-t", &format!("{}:", session),
     ])
+}
+
+fn resolve_start_dir(raw: &str) -> String {
+    if raw.is_empty() {
+        ".".to_string()
+    } else if raw.starts_with("~/") {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{}{}", home, &raw[1..])
+    } else {
+        raw.to_string()
+    }
 }
 
 // ── Grid layout ────────────────────────────────────────────────────────────────

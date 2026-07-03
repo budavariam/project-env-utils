@@ -76,12 +76,25 @@ pub struct DevBackendConfig {
     pub window_service: Vec<SessionPaneConfig>,
 }
 
-/// Optional Claude session attached to a dev session.
+/// Config for a linked window from an external tmux session.
+/// When enabled, the named external session's window is linked into the dev
+/// session as a new tab — the view stays live even if the dev session restarts.
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct ClaudeSessionConfig {
+pub struct LinkedWindowConfig {
     #[serde(default)]
     pub enabled: bool,
-    /// Starting directory for the Claude tmux session (supports `~`).
+    /// External tmux session to link from. Defaults to `"claude"`.
+    #[serde(default)]
+    pub session_name: String,
+    /// Window name or index within the external session to link.
+    /// Defaults to `session_name` when empty.
+    #[serde(default)]
+    pub window: String,
+    /// Command to run when the external session is auto-created (first launch).
+    /// Defaults to `session_name` when empty.
+    #[serde(default)]
+    pub cmd: String,
+    /// Starting directory for auto-created sessions (supports `~`).
     #[serde(default)]
     pub start_dir: String,
 }
@@ -97,7 +110,7 @@ pub struct ProjectConfig {
     pub services: Vec<ServiceConfig>,
     pub dev_ui: DevUiConfig,
     pub dev_backend: DevBackendConfig,
-    pub claude: ClaudeSessionConfig,
+    pub claude: LinkedWindowConfig,
     /// Flexible grid sessions (used by `penv dev-session`).
     pub sessions: Vec<SessionConfig>,
 }
@@ -273,7 +286,7 @@ fn parse_project(json: &serde_json::Value) -> ProjectConfig {
         #[serde(default)]
         dev_backend: DevBackendConfig,
         #[serde(default)]
-        claude: ClaudeSessionConfig,
+        claude: LinkedWindowConfig,
         #[serde(default)]
         sessions: Vec<SessionConfig>,
     }

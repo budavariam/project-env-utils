@@ -10,7 +10,7 @@ use crate::cmd::worktree::{
 };
 use crate::config::{repo_parent, repo_root, Settings};
 use crate::tmux::{
-    exec_tmux_attach, list_panes, setup_claude_window, tmux, tmux_send_keys, tmux_session_exists,
+    exec_tmux_attach, list_panes, setup_linked_window, tmux, tmux_send_keys, tmux_session_exists,
 };
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     // ── Claude window ─────────────────────────────────────────────────────────
 
-    setup_claude_window(&session, &settings.project.claude)?;
+    setup_linked_window(&session, &settings.project.claude)?;
 
     // ── Focus and attach ──────────────────────────────────────────────────────
 

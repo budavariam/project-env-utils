@@ -58,6 +58,9 @@ Full example with all supported fields:
   },
   "claude": {
     "enabled": false,
+    "session_name": "claude",
+    "window": "",
+    "cmd": "",
     "start_dir": "~/projects/myproject"
   }
 }
@@ -99,6 +102,38 @@ Config for `penv dev-backend`. Opens one tmux window per pane group.
 | `session_name` | tmux session name |
 | `window_backend[]` | Repos run in the main backend window (each gets a pane) |
 | `window_service[]` | Repos run in the services window (supporting processes) |
+
+### `claude` fields
+
+Links an external tmux session's window into the dev session as a new tab.
+Works with `dev-ui`, `dev-backend`, and `dev-session`.
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `false` | Set to `true` to activate the linked window |
+| `session_name` | `"claude"` | Name of the external tmux session to link from |
+| `window` | `""` | Window name or index within that session. Empty = `session_name` |
+| `cmd` | `""` | Command sent to the session on first launch. Empty = `session_name` |
+| `start_dir` | `"."` | Working directory when auto-creating the session (supports `~`) |
+
+**How it works:** if the external session does not exist it is created automatically, the `cmd` is sent to it, and its window is linked into the dev session as a new tab. If it already exists, only the link step runs — the external session is left untouched.
+
+**Examples:**
+
+```json
+{ "enabled": true, "start_dir": "~/projects/myproject" }
+```
+→ links `claude:claude` window, runs `claude` on first launch.
+
+```json
+{ "enabled": true, "session_name": "nvim", "window": "editor", "cmd": "nvim .", "start_dir": "~/projects/myproject" }
+```
+→ links `nvim:editor` window, runs `nvim .` on first launch.
+
+```json
+{ "enabled": true, "session_name": "monitoring", "window": "0" }
+```
+→ links window index 0 from the `monitoring` session (must already be running).
 
 ---
 
