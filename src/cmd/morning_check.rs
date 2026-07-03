@@ -11,7 +11,7 @@ use anyhow::Result;
 use crate::backend::SecretBackend;
 use crate::cmd::sync::unified_diff;
 use crate::config::{
-    backups_dir, fallback_profile_path, local_env_path, preset_local_path, repo_root, Settings,
+    backups_dir, fallback_profile_path, preset_local_path, repo_root, Settings,
 };
 use crate::env_file::{read_file, write_file};
 use crate::state::{all_tracked_services, all_tracked_workspaces, State};
@@ -237,16 +237,20 @@ fn handle(
                         label, preset, service, preset
                     );
                     backup.save(label, local.as_deref(), Some(pl));
-                    let opts: &[(&str, &str)] = &[
+                    let reload_label = format!("Reload from local/{}.{}.env", service, preset);
+                    let write_label = format!("Write current .env → local/{}.{}.env", service, preset);
+                    let vault_label_opt = backend.map(|b| format!("Push current .env → {}", b.label()));
+                    let mut opt_strs: Vec<(&str, &str)> = vec![
                         ("d", "Show diff"),
-                        (
-                            "r",
-                            &format!("Reload from local/{}.{}.env", service, preset),
-                        ),
-                        ("k", "Keep current .env as-is"),
-                        ("s", "Skip"),
+                        ("r", reload_label.as_str()),
+                        ("w", write_label.as_str()),
                     ];
-                    let mut choice = menu(opts, "r");
+                    if let Some(ref vl) = vault_label_opt {
+                        opt_strs.push(("v", vl.as_str()));
+                    }
+                    opt_strs.push(("k", "Keep current .env as-is"));
+                    opt_strs.push(("s", "Skip"));
+                    let mut choice = menu(&opt_strs, "r");
                     while choice == "d" {
                         show_diff(
                             local_str,
@@ -254,7 +258,7 @@ fn handle(
                             &format!("current {service}/.env"),
                             &format!("local/{service}.{preset}.env"),
                         );
-                        choice = menu(opts, "r");
+                        choice = menu(&opt_strs, "r");
                     }
                     if choice == "r" {
                         let _ = write_file(local_path, pl);
@@ -264,6 +268,24 @@ fn handle(
                             label, service, preset
                         ));
                         println!("    Reloaded.");
+                    } else if choice == "w" {
+                        let _ = std::fs::write(&preset_local_path, local_str);
+                        save_state(preset);
+                        backup.log(&format!(
+                            "\n[{}] wrote current .env → local/{}.{}.env",
+                            label, service, preset
+                        ));
+                        println!("    Saved to local/{}.{}.env.", service, preset);
+                    } else if choice == "v" {
+                        if let Some(b) = backend {
+                            push_with_bucket(b, service, preset, local_str);
+                            save_state(preset);
+                            backup.log(&format!(
+                                "\n[{}] pushed current .env → {}",
+                                label, b.label()
+                            ));
+                            println!("    Pushed to {}.", b.label());
+                        }
                     } else {
                         save_state(preset);
                         backup.log(&format!(
@@ -476,6 +498,7 @@ pub fn startup_sync_check(
     services: &[(&str, Option<&str>)],
     preset: &str,
     backend: Option<&dyn SecretBackend>,
+    settings: &Settings,
 ) {
     println!("Checking env sync for preset '{}':", preset);
     for (service, workspace) in services {
@@ -483,7 +506,7 @@ pub fn startup_sync_check(
             .and_then(|ws| std::path::Path::new(ws).file_name().and_then(|n| n.to_str()))
             .map(|name| format!("{}/{}", service, name))
             .unwrap_or_else(|| service.to_string());
-        let local_path = local_env_path(service, *workspace);
+        let local_path = settings.project.service_env_path(service, *workspace);
 
         let Some(b) = backend else {
             check_one_quiet(&label, service, &local_path, preset, backend);
@@ -686,10 +709,59 @@ fn check_one_quiet(
             (Some(loc), Some(r)) if loc == r => {
                 println!("  {} [{}]: matches reference ✓", label, preset)
             }
-            (Some(_), Some(_)) => println!(
-                "  {} [{}]: differs from reference file — run reload_env",
-                label, preset
-            ),
+            (Some(loc), Some(r)) => {
+                let ref_label = if preset_local.exists() {
+                    format!("local/{}.{}.env", service, preset)
+                } else {
+                    format!("env/{}/{}.env", service, preset)
+                };
+                println!("\n  {} [{}]: .env differs from {}", label, preset, ref_label);
+                let reload_label = format!("reload from {}", ref_label);
+                let write_label = format!("write current .env → local/{}.{}.env", service, preset);
+                let vault_label_opt = backend.map(|b| format!("push current .env → {}", b.label()));
+                let mut opt_strs: Vec<(&str, &str)> = vec![
+                    ("d", "show diff"),
+                    ("r", reload_label.as_str()),
+                    ("w", write_label.as_str()),
+                ];
+                if let Some(ref vl) = vault_label_opt {
+                    opt_strs.push(("v", vl.as_str()));
+                }
+                opt_strs.push(("s", "skip"));
+                let mut choice = menu(&opt_strs, "r");
+                while choice == "d" {
+                    show_diff(loc, r, &format!("current {}/{}", service, label), &ref_label);
+                    choice = menu(&opt_strs, "r");
+                }
+                if choice == "r" {
+                    crate::backup::backup_env_before_write(
+                        label, local_path, "startup-sync-reload",
+                        &format!("user reloaded from {} (no backend)", ref_label),
+                    );
+                    if let Err(e) = write_file(local_path, r) {
+                        eprintln!("    error writing .env: {}", e);
+                    } else {
+                        println!("    Reloaded.");
+                    }
+                } else if choice == "w" {
+                    let target = preset_local_path(service, preset);
+                    if let Some(parent) = target.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Err(e) = std::fs::write(&target, loc) {
+                        eprintln!("    error writing local cache: {}", e);
+                    } else {
+                        println!("    Saved to local/{}.{}.env.", service, preset);
+                    }
+                } else if choice == "v" {
+                    if let Some(b) = backend {
+                        push_with_bucket(b, service, preset, loc);
+                        println!("    Pushed to {}.", b.label());
+                    }
+                } else {
+                    println!("    Skipped.");
+                }
+            }
             (Some(_), None) => println!("  {} [{}]: ✓", label, preset),
         }
     }
@@ -766,7 +838,7 @@ pub fn run(settings: &Settings) -> Result<()> {
                 .and_then(|n| n.to_str())
                 .unwrap_or(ws_path)
         );
-        let local_path = local_env_path(ui_repo, Some(ws_path));
+        let local_path = settings.project.service_env_path(ui_repo, Some(ws_path));
 
         let ws_clone = ws_path.clone();
         let preset_clone = preset.clone();
@@ -798,7 +870,7 @@ pub fn run(settings: &Settings) -> Result<()> {
     }
 
     for (service, preset) in &services {
-        let local_path = local_env_path(service, None);
+        let local_path = settings.project.service_env_path(service, None);
         if !local_path.parent().map(|p| p.exists()).unwrap_or(false) {
             println!("  {}: repo folder not found, skipping", service);
             any_work = true;
