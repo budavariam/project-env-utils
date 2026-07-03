@@ -55,6 +55,10 @@ pub fn load_service(
     // 1. Secret backend
     if let Some(b) = backend {
         if let Some(content) = b.fetch(service, preset) {
+            crate::backup::backup_env_before_write(
+                &format!("{}/{}", service, preset), &dest, "load-env",
+                &format!("load-env {}/{} from {}", service, preset, b.label()),
+            );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;
@@ -78,6 +82,10 @@ pub fn load_service(
     let preset_local = preset_local_path(service, preset);
     if preset_local.exists() {
         if let Ok(content) = std::fs::read_to_string(&preset_local) {
+            crate::backup::backup_env_before_write(
+                &format!("{}/{}", service, preset), &dest, "load-env",
+                &format!("load-env {}/{} from local cache {}.{}.env", service, preset, service, preset),
+            );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;
@@ -91,6 +99,10 @@ pub fn load_service(
     let fallback = local_fallback_path(service);
     if fallback.exists() {
         if let Ok(content) = std::fs::read_to_string(&fallback) {
+            crate::backup::backup_env_before_write(
+                &format!("{}/{}", service, preset), &dest, "load-env",
+                &format!("load-env {}/{} from generic local fallback {}.env", service, preset, service),
+            );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;
@@ -107,6 +119,10 @@ pub fn load_service(
     let profile = fallback_profile_path(service, preset);
     if profile.exists() {
         if let Ok(content) = std::fs::read_to_string(&profile) {
+            crate::backup::backup_env_before_write(
+                &format!("{}/{}", service, preset), &dest, "load-env",
+                &format!("load-env {}/{} from git profile env/{}/{}.env", service, preset, service, preset),
+            );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;

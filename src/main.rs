@@ -1,5 +1,6 @@
 /// penv — dev environment utilities.
 mod backend;
+mod backup;
 mod cmd;
 mod config;
 mod env_file;

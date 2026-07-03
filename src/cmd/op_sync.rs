@@ -186,6 +186,14 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
         if b.push(svc, &dest, &content) {
             // Also write to local .env so it's immediately usable
             let dest_path = local_env_path(svc, None);
+            crate::backup::backup_env_before_write(
+                &format!("{}/{}", svc, dest), &dest_path, "op-new-preset",
+                &format!("new-preset: {} copied from {} → {}", svc, src, dest),
+            );
+            crate::backup::log_backend_push(
+                &format!("{}/{}", svc, dest), "op-new-preset",
+                &format!("pushed new preset {} to {} (copied from {})", dest, b.label(), src),
+            );
             let _ = crate::env_file::write_file(&dest_path, &content);
             println!("  ✓  {}  [{}] copied from [{}]", svc, dest, src);
             let _ = crate::state::set_service_preset(svc, &dest);

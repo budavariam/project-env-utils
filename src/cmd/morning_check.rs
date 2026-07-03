@@ -530,6 +530,10 @@ pub fn startup_sync_check(
                     choice = menu(opts, default);
                 }
                 if choice == "p" {
+                    crate::backup::backup_env_before_write(
+                        &label, &local_path, "startup-sync-pull",
+                        &format!("user chose pull from {}", b.label()),
+                    );
                     if let Err(e) = write_file(&local_path, rem) {
                         eprintln!("    error writing .env: {}", e);
                     } else {
@@ -537,6 +541,10 @@ pub fn startup_sync_check(
                         println!("    Pulled. Local .env updated from {}.", b.label());
                     }
                 } else if choice == "push" {
+                    crate::backup::log_backend_push(
+                        &label, "startup-sync-push",
+                        &format!("user chose push to {}", b.label()),
+                    );
                     push_with_bucket(b, service, preset, loc);
                     save_preset_state(service, *workspace, preset);
                     println!("    Pushed to {}.", b.label());
@@ -560,6 +568,10 @@ pub fn startup_sync_check(
                     if let Some(parent) = local_path.parent() {
                         let _ = std::fs::create_dir_all(parent);
                     }
+                    crate::backup::backup_env_before_write(
+                        &label, &local_path, "startup-sync-pull",
+                        &format!("created from {} (was missing locally)", b.label()),
+                    );
                     if let Err(e) = write_file(&local_path, rem) {
                         eprintln!("    error writing .env: {}", e);
                     } else {
@@ -583,6 +595,10 @@ pub fn startup_sync_check(
                 ];
                 let choice = menu(opts, "s");
                 if choice == "push" {
+                    crate::backup::log_backend_push(
+                        &label, "startup-sync-push",
+                        &format!("user pushed local .env to {} (was missing in backend)", b.label()),
+                    );
                     push_with_bucket(b, service, preset, loc);
                     println!("    Pushed to {}.", b.label());
                 } else {

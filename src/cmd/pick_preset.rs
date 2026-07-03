@@ -75,8 +75,14 @@ pub fn load_service_for_pick(
         );
     }
 
+    let label = format!("{}/{}", service, preset);
+
     if let Some(b) = backend {
         if let Some(content) = b.fetch(service, preset) {
+            crate::backup::backup_env_before_write(
+                &label, dest, "load-service-for-pick",
+                &format!("loading from {}", b.label()),
+            );
             if write_file(dest, &content).is_ok() {
                 return (true, format!("{}:{}", b.label().to_lowercase(), b.key_display(service, preset)));
             }
@@ -91,6 +97,10 @@ pub fn load_service_for_pick(
     let preset_local = preset_local_path(service, preset);
     if preset_local.exists() {
         if let Ok(content) = std::fs::read_to_string(&preset_local) {
+            crate::backup::backup_env_before_write(
+                &label, dest, "load-service-for-pick",
+                &format!("loading from local cache {}.{}.env", service, preset),
+            );
             if write_file(dest, &content).is_ok() {
                 return (true, format!("{} local", preset));
             }
@@ -100,6 +110,10 @@ pub fn load_service_for_pick(
     let fallback = local_fallback_path(service);
     if fallback.exists() {
         if let Ok(content) = std::fs::read_to_string(&fallback) {
+            crate::backup::backup_env_before_write(
+                &label, dest, "load-service-for-pick",
+                &format!("loading from generic local fallback {}.env", service),
+            );
             if write_file(dest, &content).is_ok() {
                 return (true, "local fallback (DB may not match preset)".to_string());
             }
@@ -109,6 +123,10 @@ pub fn load_service_for_pick(
     let profile = fallback_profile_path(service, preset);
     if profile.exists() {
         if let Ok(content) = std::fs::read_to_string(&profile) {
+            crate::backup::backup_env_before_write(
+                &label, dest, "load-service-for-pick",
+                &format!("loading from git-tracked profile env/{}/{}.env", service, preset),
+            );
             if write_file(dest, &content).is_ok() {
                 return (true, "profile (no secrets)".to_string());
             }

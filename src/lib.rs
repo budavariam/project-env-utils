@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod backup;
 pub mod cmd;
 pub mod config;
 pub mod env_file;

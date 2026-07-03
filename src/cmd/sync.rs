@@ -111,6 +111,10 @@ pub fn cmd_pull(
                     if let Some(parent) = dest.parent() {
                         let _ = std::fs::create_dir_all(parent);
                     }
+                    crate::backup::backup_env_before_write(
+                        service, &dest, "op-pull",
+                        &format!("op pull {} from {}", preset, backend.key_display(service, preset)),
+                    );
                     if std::fs::write(&dest, &content).is_ok() {
                         println!(
                             "  wrote {}/.env  (from {})",
