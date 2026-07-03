@@ -27,7 +27,6 @@ pub struct DevUiArgs {
 
 pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     let root = repo_parent();
-    let script_dir = repo_root();
     let repo = &settings.project.dev_ui.repo;
     let ui_dir = root.join(repo);
 
@@ -135,7 +134,9 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     )?;
 
     // Shell pane
-    let penv = format!("{}/penv", script_dir.to_string_lossy());
+    let penv = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| format!("{}/penv", repo_root().to_string_lossy()));
     let helper_path = format!("/tmp/dev-ui-helper-{}", session);
 
     if is_worktree {

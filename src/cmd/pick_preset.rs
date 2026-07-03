@@ -142,6 +142,24 @@ pub fn resolve_workspace_preset(
     };
 
     let dest = local_env_path(service, Some(workspace));
+
+    // If the service .env exists and is newer than the penv cache, the user
+    // likely edited it manually. Skip the silent pull so startup_sync_check
+    // can show the diff and let them choose direction.
+    let cache = preset_local_path(service, &preset);
+    let dest_mtime = std::fs::metadata(&dest).and_then(|m| m.modified()).ok();
+    let cache_mtime = std::fs::metadata(&cache).and_then(|m| m.modified()).ok();
+    let user_edited = matches!((dest_mtime, cache_mtime), (Some(d), Some(c)) if d > c)
+        || matches!((dest_mtime, cache_mtime), (Some(_), None) if dest.exists());
+    if user_edited {
+        err(&format!(
+            "  {} [{}]: .env is newer than cache — skipping auto-load, will sync-check",
+            service, preset
+        ));
+        let _ = set_workspace_preset(workspace, &preset);
+        return Ok(preset);
+    }
+
     let (ok, status) = load_service_for_pick(service, &preset, &dest, backend, settings);
     err(&format!(
         "  loaded {} [{}] → {:?}  ({})",

@@ -31,7 +31,6 @@ pub struct DevBackendArgs {
 
 pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     let root = repo_parent();
-    let script_dir = repo_root();
     let cfg = &settings.project.dev_backend;
 
     if cfg.window_backend.is_empty() {
@@ -127,7 +126,9 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     }
 
     let root_s = root.to_string_lossy();
-    let penv = format!("{}/penv", script_dir.to_string_lossy());
+    let penv = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| format!("{}/penv", repo_root().to_string_lossy()));
 
     // ── Window 0: backend (window_backend panes) ──────────────────────────────
 
