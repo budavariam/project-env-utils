@@ -78,11 +78,15 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     let backend_box = crate::backend::active_backend(settings);
     let bref = backend_box.as_deref();
 
-    let preset = args
-        .preset
-        .clone()
-        .map(Ok)
-        .unwrap_or_else(|| resolve_backend_preset(None, bref, settings))?;
+    // Sessions with no_preset skip secret resolution and env sync entirely.
+    let preset = if session_cfg.no_preset {
+        args.preset.clone().unwrap_or_default()
+    } else {
+        args.preset
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| resolve_backend_preset(None, bref, settings))?
+    };
 
     // Collect unique service names across all tabs for sync check + helper script.
     let all_services: Vec<String> = {
@@ -97,10 +101,12 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             .collect()
     };
 
-    let sync_items: Vec<(&str, Option<&str>)> =
-        all_services.iter().map(|s| (s.as_str(), None)).collect();
-    crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref);
-    println!();
+    if !session_cfg.no_preset {
+        let sync_items: Vec<(&str, Option<&str>)> =
+            all_services.iter().map(|s| (s.as_str(), None)).collect();
+        crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref);
+        println!();
+    }
 
     let root_s = root.to_string_lossy().into_owned();
     let default_dir = root_s.as_str();

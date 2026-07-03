@@ -56,6 +56,9 @@ pub struct TabConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SessionConfig {
     pub session_name: String,
+    /// Skip preset resolution and env sync — for sessions that don't use secrets.
+    #[serde(default)]
+    pub no_preset: bool,
     #[serde(default)]
     pub tabs: Vec<TabConfig>,
 }
