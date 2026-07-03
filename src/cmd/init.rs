@@ -87,7 +87,7 @@ pub fn run() -> Result<()> {
     println!("  Helps identify this project's items when you share a vault.");
     let default_prefix = project_name.to_lowercase().replace(' ', "-");
     let op_item_prefix = ask("Prefix (leave blank for none)", &default_prefix);
-    let bucket = String::new(); // not used — local-only fallback
+    let _bucket = String::new(); // not used — local-only fallback
 
     // ── 5. Services ─────────────────────────────────────────────────────────
     print_step(5, "Service repos");
@@ -184,7 +184,7 @@ pub fn run() -> Result<()> {
     };
 
     // ── Build settings.json ──────────────────────────────────────────────────
-    let mut project_node = serde_json::json!({
+    let project_node = serde_json::json!({
         "name": project_name,
         "op_vault": op_vault,
         "op_item_prefix": op_item_prefix,

@@ -69,6 +69,7 @@ pub fn run_cmd(args: &[&str]) -> (bool, String, String) {
 }
 
 /// Write content to a temporary .env file. Caller is responsible for deleting.
+#[allow(dead_code)]
 pub fn write_tempfile(content: &str) -> Result<std::path::PathBuf> {
     write_tempfile_ext(content, ".env")
 }

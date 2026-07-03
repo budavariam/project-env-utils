@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::backend::SecretBackend;
+
 use crate::config::{available_presets, repo_parent, Settings};
 use crate::cmd::pick_preset::load_service_for_pick;
 use crate::env_file::write_file;

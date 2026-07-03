@@ -50,7 +50,7 @@ impl OpBackend {
         ok
     }
 
-    pub fn init_vault(&self, services: &[String]) -> anyhow::Result<()> {
+    pub fn init_vault(&self, _services: &[String]) -> anyhow::Result<()> {
         println!("Checking vault '{}'...", self.vault);
         if self.vault_exists() {
             println!("  '{}' exists.", self.vault);
