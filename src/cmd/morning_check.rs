@@ -501,21 +501,33 @@ pub fn startup_sync_check(
 
             // ── Remote differs from local ────────────────────────────────────
             (Some(loc), Some(rem)) => {
+                let cache_path = preset_local_path(service, preset);
+                let local_is_newer = is_service_env_newer(&local_path, &cache_path);
+                let direction = if local_is_newer {
+                    "(local .env is newer — your changes likely)"
+                } else {
+                    &format!("({} was updated — backend changes likely)", b.label())
+                };
                 println!(
-                    "\n  {} [{}]: differs from {}",
-                    label, preset, b.label()
+                    "\n  {} [{}]: differs from {}  {}",
+                    label, preset, b.label(), direction
                 );
+                let default = if local_is_newer { "push" } else { "p" };
                 let from_label = format!("{}/{}", b.label().to_lowercase(), b.key_display(service, preset));
                 let to_label = format!("local/{}", label);
+                let push_desc = format!("push local → {}  (your changes → backend)", b.label());
+                let pull_desc = format!("pull from {}  (overwrite local)", b.label());
+                let diff_desc = format!("show diff  ({} → local)", b.label());
                 let opts: &[(&str, &str)] = &[
-                    ("d", &format!("show diff  ({} → local)", b.label())),
-                    ("p", &format!("pull from {}  (overwrite local)", b.label())),
+                    ("d", &diff_desc),
+                    ("push", &push_desc),
+                    ("p", &pull_desc),
                     ("s", "skip  (keep local as-is)"),
                 ];
-                let mut choice = menu(opts, "s");
+                let mut choice = menu(opts, default);
                 while choice == "d" {
                     show_diff(loc, rem, &from_label, &to_label);
-                    choice = menu(opts, "s");
+                    choice = menu(opts, default);
                 }
                 if choice == "p" {
                     if let Err(e) = write_file(&local_path, rem) {
@@ -524,6 +536,10 @@ pub fn startup_sync_check(
                         save_preset_state(service, *workspace, preset);
                         println!("    Pulled. Local .env updated from {}.", b.label());
                     }
+                } else if choice == "push" {
+                    push_with_bucket(b, service, preset, loc);
+                    save_preset_state(service, *workspace, preset);
+                    println!("    Pushed to {}.", b.label());
                 } else {
                     println!("    Skipped.");
                 }
@@ -582,6 +598,19 @@ pub fn startup_sync_check(
                 );
             }
         }
+    }
+}
+
+/// Returns true if the service .env is newer than the penv local cache.
+/// If the cache doesn't exist, the service .env counts as newer (user may have
+/// made changes that were never captured).
+fn is_service_env_newer(service_env: &Path, cache_path: &Path) -> bool {
+    let env_mtime = std::fs::metadata(service_env).and_then(|m| m.modified()).ok();
+    let cache_mtime = std::fs::metadata(cache_path).and_then(|m| m.modified()).ok();
+    match (env_mtime, cache_mtime) {
+        (Some(e), Some(c)) => e > c,
+        (Some(_), None) => true,
+        _ => false,
     }
 }
 

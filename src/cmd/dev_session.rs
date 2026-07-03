@@ -25,8 +25,9 @@ pub struct DevSessionArgs {
 
 pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     let root = repo_parent();
-    let script_dir = repo_root();
-    let penv = format!("{}/penv", script_dir.to_string_lossy());
+    let penv = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| format!("{}/penv", repo_root().to_string_lossy()));
 
     let sessions_cfg = &settings.project.sessions;
     if sessions_cfg.is_empty() {
