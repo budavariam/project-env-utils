@@ -1,6 +1,6 @@
 //! `penv dev-backend [--preset <name>] [--select] [--resume [<branch>]]`
 //!
-//! Launches backend services in a tmux session.
+//! Launches backend services in a dev session using the configured multiplexer.
 //! window_backend repos support worktrees; window_service repos always run from main.
 use std::path::PathBuf;
 
@@ -12,9 +12,7 @@ use crate::cmd::worktree::{
     write_close_session_script, write_teardown_script,
 };
 use crate::config::{repo_parent, repo_root, Settings};
-use crate::tmux::{
-    active_mux, first_pane_id, setup_linked_window, tmux, tmux_output, tmux_send_keys,
-};
+use crate::tmux::{active_mux, setup_linked_window};
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -55,15 +53,11 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     // ── Resolve worktrees (when --select / --resume) ─────────────────────────
 
     let (backend_dirs, session, is_worktree) = if args.select || args.resume {
-        // Pick branch from the first backend repo
         let primary_repo = root.join(&cfg.window_backend[0].repo);
         let branch = if args.resume {
-            args.resume_branch
-                .clone()
-                .map(Ok)
+            args.resume_branch.clone().map(Ok)
                 .unwrap_or_else(|| pick_existing_worktree_fzf(&primary_repo))?
         } else {
-            // --select: pick any branch and create a new worktree
             pick_branch_fzf(&primary_repo)?
         };
 
@@ -74,22 +68,12 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         for pane in &cfg.window_backend {
             let repo_dir = root.join(&pane.repo);
             let wt = ensure_worktree(&repo_dir, &branch)?;
-            eprintln!(
-                "  {} → {} (branch: {})",
-                pane.repo,
-                wt.display(),
-                branch
-            );
+            eprintln!("  {} → {} (branch: {})", pane.repo, wt.display(), branch);
             dirs.push(wt);
         }
-
         (dirs, session, true)
     } else {
-        let dirs: Vec<PathBuf> = cfg
-            .window_backend
-            .iter()
-            .map(|p| root.join(&p.repo))
-            .collect();
+        let dirs: Vec<PathBuf> = cfg.window_backend.iter().map(|p| root.join(&p.repo)).collect();
         (dirs, cfg.session_name.clone(), false)
     };
 
@@ -99,14 +83,11 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     let bref = backend_box.as_deref();
 
     let preset = if is_worktree {
-        // Load .env into each worktree dir individually
         let mut preset_name = String::new();
         for (i, pane) in cfg.window_backend.iter().enumerate() {
             let ws = backend_dirs[i].to_string_lossy().into_owned();
             let p = resolve_workspace_preset(&pane.repo, &ws, args.preset.as_deref(), bref, settings)?;
-            if preset_name.is_empty() {
-                preset_name = p;
-            }
+            if preset_name.is_empty() { preset_name = p; }
         }
         preset_name
     } else {
@@ -125,139 +106,104 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         mux.attach(&session);
     }
 
-    let root_s = root.to_string_lossy();
+    let root_s = root.to_string_lossy().into_owned();
     let penv = std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| format!("{}/penv", repo_root().to_string_lossy()));
 
     // ── Window 0: backend (window_backend panes) ──────────────────────────────
+    //
+    // Layout:  backend_pane_0  | shell_pane
+    //          backend_pane_1  |
+    //          ...
 
     let first_dir = backend_dirs[0].to_string_lossy().into_owned();
-    tmux(&[
-        "new-session", "-d", "-s", &session, "-n", "backend", "-c", &first_dir,
-    ])?;
+    mux.new_session(&session, "backend", &first_dir)?;
+    let p_first = mux.first_pane_id(&session, 0)?;
 
-    let p_first = first_pane_id(&session, 0)?;
+    // Shell pane: horizontal split to the right
+    let p_shell = mux.split_h(&p_first, &root_s)?;
 
-    // Shell pane (right side, horizontal split from first pane)
-    let p_shell = tmux_output(&[
-        "split-window", "-h", "-l", "50%", "-t", &p_first, "-c", &root_s,
-        "-P", "-F", "#{pane_id}",
-    ])?;
-    if p_shell.is_empty() {
-        bail!("pane ID resolution failed for shell pane");
-    }
-
-    // Additional backend panes (vertical splits below first pane, left column)
+    // Additional backend panes: vertical splits below the first
     let mut backend_pane_ids = vec![p_first.clone()];
     for dir in backend_dirs.iter().skip(1) {
-        let dir_s = dir.to_string_lossy();
-        let p = tmux_output(&[
-            "split-window", "-v", "-l", "50%", "-t", &p_first, "-c", &dir_s,
-            "-P", "-F", "#{pane_id}",
-        ])?;
-        if p.is_empty() {
-            bail!("pane ID resolution failed for backend window");
-        }
+        let dir_s = dir.to_string_lossy().into_owned();
+        let p = mux.split_v(&p_first, &dir_s)?;
+        if p.is_empty() { bail!("pane ID resolution failed for backend pane"); }
         backend_pane_ids.push(p);
     }
 
     // Send commands to backend panes
     for (i, pane_cfg) in cfg.window_backend.iter().enumerate() {
-        let dir_s = backend_dirs[i].to_string_lossy();
-        tmux_send_keys(
-            &backend_pane_ids[i],
-            &format!("cd '{}' && {}", dir_s, pane_cfg.cmd),
-        )?;
+        let dir_s = backend_dirs[i].to_string_lossy().into_owned();
+        mux.send_keys(&backend_pane_ids[i], &format!("cd '{}' && {}", dir_s, pane_cfg.cmd))?;
     }
 
     // Shell pane — show info + helper script
     let helper_path = format!("/tmp/dev-backend-helper-{}", session);
     let service_names: Vec<String> = cfg.window_backend.iter().map(|p| p.repo.clone()).collect();
-    let services_arg = service_names
-        .iter()
-        .map(|s| format!("'{}'", s))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let services_arg = service_names.iter().map(|s| format!("'{}'", s)).collect::<Vec<_>>().join(" ");
 
     if is_worktree {
-        let worktrees: Vec<(PathBuf, PathBuf)> = cfg
-            .window_backend
-            .iter()
-            .enumerate()
+        let worktrees: Vec<(PathBuf, PathBuf)> = cfg.window_backend.iter().enumerate()
             .map(|(i, pane)| (backend_dirs[i].clone(), root.join(&pane.repo)))
             .collect();
-        let wt_refs: Vec<(&std::path::Path, &std::path::Path)> = worktrees
-            .iter()
-            .map(|(wt, repo)| (wt.as_path(), repo.as_path()))
-            .collect();
+        let wt_refs: Vec<(&std::path::Path, &std::path::Path)> =
+            worktrees.iter().map(|(wt, r)| (wt.as_path(), r.as_path())).collect();
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
         let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --services {} --notes 'teardown      — remove worktrees & close session' 'reload_env    — reload .env from current preset' 'close_session — close session only' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            "'{}' show-info --preset '{}' --services {} --notes \
+             'teardown      — remove worktrees & close session' \
+             'reload_env    — reload .env from current preset' \
+             'close_session — close session only' \
+             'show_info     — re-display this box' \
+             'inspect_env   — inspect env file ages' ||:",
             penv, preset, services_arg,
         );
         write_teardown_script(&helper_path, &session, &wt_refs, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
-        tmux_send_keys(
-            &p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path,
-            ),
-        )?;
+        mux.send_keys(&p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
     } else {
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
         let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --services {} --notes 'reload_env    — reload .env from current preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            "'{}' show-info --preset '{}' --services {} --notes \
+             'reload_env    — reload .env from current preset' \
+             'close_session — close session' \
+             'show_info     — re-display this box' \
+             'inspect_env   — inspect env file ages' ||:",
             penv, preset, services_arg,
         );
         write_close_session_script(&helper_path, &session, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
-        tmux_send_keys(
-            &p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path,
-            ),
-        )?;
+        mux.send_keys(&p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
     }
 
     // ── Window 1: service (window_service panes) ──────────────────────────────
 
     if !cfg.window_service.is_empty() {
-        let first_svc_dir = root.join(&cfg.window_service[0].repo);
-        let first_svc_s = first_svc_dir.to_string_lossy();
-        tmux(&["new-window", "-t", &session, "-n", "service", "-c", &first_svc_s])?;
-
-        let p_svc_first = first_pane_id(&session, 1)?;
+        let first_svc_s = root.join(&cfg.window_service[0].repo).to_string_lossy().into_owned();
+        mux.new_window(&session, "service", &first_svc_s)?;
+        let p_svc_first = mux.first_pane_id(&session, 1)?;
 
         let mut svc_pane_ids = vec![p_svc_first.clone()];
         for pane_cfg in cfg.window_service.iter().skip(1) {
             let dir_s = root.join(&pane_cfg.repo).to_string_lossy().into_owned();
-            let p = tmux_output(&[
-                "split-window", "-h", "-l", "50%", "-t", &p_svc_first,
-                "-c", &dir_s, "-P", "-F", "#{pane_id}",
-            ])?;
-            if p.is_empty() {
-                bail!("pane ID resolution failed for service window");
-            }
+            let p = mux.split_h(&p_svc_first, &dir_s)?;
+            if p.is_empty() { bail!("pane ID resolution failed for service window"); }
             svc_pane_ids.push(p);
         }
 
         for (i, pane_cfg) in cfg.window_service.iter().enumerate() {
             let dir_s = root.join(&pane_cfg.repo).to_string_lossy().into_owned();
-            tmux_send_keys(
-                &svc_pane_ids[i],
-                &format!("cd '{}' && {}", dir_s, pane_cfg.cmd),
-            )?;
+            mux.send_keys(&svc_pane_ids[i], &format!("cd '{}' && {}", dir_s, pane_cfg.cmd))?;
         }
     }
 
     // ── Claude window ─────────────────────────────────────────────────────────
 
-    setup_linked_window(&session, &settings.project.claude)?;
+    setup_linked_window(&session, &settings.project.claude, mux.as_ref())?;
 
     // ── Focus and attach ──────────────────────────────────────────────────────
 
-    tmux(&["select-window", "-t", &format!("{}:0", session)])?;
+    mux.select_window(&session, 0)?;
     mux.attach(&session);
 }
 

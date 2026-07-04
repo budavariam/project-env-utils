@@ -1,6 +1,6 @@
 //! `penv dev-ui [--preset <name>] [--select] [--resume [<branch>]]`
 //!
-//! Launches the ui repo in a tmux session.
+//! Launches the ui repo in a dev session using the configured multiplexer.
 use anyhow::{bail, Result};
 
 use crate::cmd::pick_preset::resolve_workspace_preset;
@@ -9,9 +9,7 @@ use crate::cmd::worktree::{
     write_teardown_script,
 };
 use crate::config::{repo_parent, repo_root, Settings};
-use crate::tmux::{
-    active_mux, list_panes, setup_linked_window, tmux, tmux_send_keys,
-};
+use crate::tmux::{active_mux, setup_linked_window};
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -62,9 +60,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
         let session = format!("{}_{}", repo, branch_to_safe(&branch));
         eprintln!(
             "Workspace: {} (branch: {}, session: {})",
-            wt.display(),
-            branch,
-            session
+            wt.display(), branch, session
         );
         (wt, session, true)
     } else {
@@ -78,16 +74,14 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     // ── Resolve preset ───────────────────────────────────────────────────────
 
-    let ui_dir_str = ui_dir.to_string_lossy().into_owned();
-    let preset = resolve_workspace_preset(repo, &ui_dir_str, args.preset.as_deref(), bref, settings)?;
+    let ui_dir_s = ui_dir.to_string_lossy().into_owned();
+    let preset = resolve_workspace_preset(repo, &ui_dir_s, args.preset.as_deref(), bref, settings)?;
 
     // ── Session guard ────────────────────────────────────────────────────────
 
     crate::cmd::morning_check::startup_sync_check(
-        &[(repo.as_str(), Some(ui_dir_str.as_str()))],
-        &preset,
-        bref,
-        settings,
+        &[(repo.as_str(), Some(ui_dir_s.as_str()))],
+        &preset, bref, settings,
     );
     println!();
 
@@ -96,46 +90,30 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
         mux.attach(&session);
     }
 
-    // ── Create session and first window "ui" ─────────────────────────────────
+    // ── Create session with 2×2 pane grid ────────────────────────────────────
+    //
+    // Layout (tmux):            Layout (screen — each cell = a window):
+    //   p_ui   | p_shell          window 0 = p_ui
+    //   p_sb   | (idle)           window p1 = p_shell
+    //                             window p2 = p_sb
 
-    let ui_dir_s = ui_dir.to_string_lossy();
-    tmux(&["new-session", "-d", "-s", &session, "-n", "ui", "-c", &ui_dir_s])?;
-
-    tmux(&["split-window", "-h", "-l", "50%", "-c", &ui_dir_s])?;
-
-    let panes_after_h = list_panes(&session)?;
-    if panes_after_h.len() < 2 {
-        bail!("pane ID resolution failed after h-split");
-    }
-    let p_ui = panes_after_h[0].0.clone();
-    let p_shell = panes_after_h[1].0.clone();
-
-    tmux(&[
-        "split-window", "-v", "-l", "50%", "-t", &p_ui, "-c", &ui_dir_s,
-    ])?;
-
-    let panes_after_v = list_panes(&session)?;
-    if panes_after_v.len() < 3 {
-        bail!("pane ID resolution failed after v-split");
-    }
-    let p_sb = panes_after_v[1].0.clone();
+    mux.new_session(&session, "ui", &ui_dir_s)?;
+    let first = mux.first_pane_id(&session, 0)?;
+    let grid = mux.build_pane_grid(&first, 2, 2, &ui_dir_s)?;
+    let p_ui    = &grid[0][0];
+    let p_shell = &grid[0][1];
+    let p_sb    = &grid[1][0];
+    // grid[1][1] is an idle shell
 
     // ── Pane commands ─────────────────────────────────────────────────────────
 
     let dev_cmd = &settings.project.dev_ui.pane_dev_cmd;
-    let sb_cmd = &settings.project.dev_ui.pane_sb_cmd;
+    let sb_cmd  = &settings.project.dev_ui.pane_sb_cmd;
 
-    tmux_send_keys(
-        &p_ui,
-        &format!("cd '{}' && {}", ui_dir_s, dev_cmd),
-    )?;
+    mux.send_keys(p_ui,   &format!("cd '{}' && {}", ui_dir_s, dev_cmd))?;
+    mux.send_keys(p_sb,   &format!("cd '{}' && sleep 10 && {}", ui_dir_s, sb_cmd))?;
 
-    tmux_send_keys(
-        &p_sb,
-        &format!("cd '{}' && sleep 10 && {}", ui_dir_s, sb_cmd),
-    )?;
-
-    // Shell pane
+    // Shell pane — helper script
     let penv = std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| format!("{}/penv", repo_root().to_string_lossy()));
@@ -143,40 +121,40 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     if is_worktree {
         let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --workspace '{}' --notes 'teardown      — remove worktree & close session' 'reload_env    — reload .env from current preset' 'close_session — close session only' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            "'{}' show-info --preset '{}' --workspace '{}' --notes \
+             'teardown      — remove worktree & close session' \
+             'reload_env    — reload .env from current preset' \
+             'close_session — close session only' \
+             'show_info     — re-display this box' \
+             'inspect_env   — inspect env file ages' ||:",
             penv, preset, ui_dir_s,
         );
-        write_teardown_script(&helper_path, &session, &[(&ui_dir, &root.join(repo))], &penv, &preset, &[repo.as_str()], &show_info_fn_cmd)?;
-        tmux_send_keys(
-            &p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path,
-            ),
+        write_teardown_script(
+            &helper_path, &session, &[(&ui_dir, &root.join(repo))],
+            &penv, &preset, &[repo.as_str()], &show_info_fn_cmd,
         )?;
+        mux.send_keys(p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
     } else {
         let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --workspace '{}' --notes 'reload_env    — reload .env from current preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            "'{}' show-info --preset '{}' --workspace '{}' --notes \
+             'reload_env    — reload .env from current preset' \
+             'close_session — close session' \
+             'show_info     — re-display this box' \
+             'inspect_env   — inspect env file ages' ||:",
             penv, preset, ui_dir_s,
         );
         write_close_session_script(&helper_path, &session, &penv, &preset, &[repo.as_str()], &show_info_fn_cmd)?;
-        tmux_send_keys(
-            &p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path,
-            ),
-        )?;
+        mux.send_keys(p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
     }
 
     // ── Claude window ─────────────────────────────────────────────────────────
 
-    setup_linked_window(&session, &settings.project.claude)?;
+    setup_linked_window(&session, &settings.project.claude, mux.as_ref())?;
 
     // ── Focus and attach ──────────────────────────────────────────────────────
 
-    tmux(&["select-window", "-t", &format!("{}:ui", session)])?;
-    tmux(&["select-pane", "-t", &p_shell])?;
+    mux.select_window(&session, 0)?;
+    mux.select_pane(p_shell)?;
     mux.attach(&session);
 }
 
@@ -192,11 +170,7 @@ mod tests {
         let root = PathBuf::from("/home/user/project");
         let branch = "feat/my-feature";
         let safe = branch_to_safe(branch);
-        let path = root
-            .join("my-ui")
-            .join(".claude")
-            .join("worktrees")
-            .join(&safe);
+        let path = root.join("my-ui").join(".claude").join("worktrees").join(&safe);
         assert_eq!(
             path,
             PathBuf::from("/home/user/project/my-ui/.claude/worktrees/feat_my-feature")

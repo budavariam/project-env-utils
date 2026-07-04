@@ -1,6 +1,7 @@
 //! Session multiplexer abstraction — tmux, byobu, and GNU Screen.
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{bail, Context, Result};
 
@@ -17,24 +18,45 @@ pub trait Mux: Send + Sync {
     fn new_session(&self, name: &str, window: &str, dir: &str) -> Result<()>;
     fn new_window(&self, session: &str, window: &str, dir: &str) -> Result<()>;
     fn select_window(&self, session: &str, index: usize) -> Result<()>;
+    /// Focus a specific pane. No-op on backends that have no sub-window panes.
+    fn select_pane(&self, _target: &str) -> Result<()> { Ok(()) }
     fn send_keys(&self, target: &str, cmd: &str) -> Result<()>;
-    fn run_output(&self, args: &[&str]) -> Result<String>;
 
     /// Replace the current process with an attach command. Never returns.
     fn attach(&self, session: &str) -> !;
 
-    /// Return the pane/window ID of position 0 within a window.
+    /// Return the pane/window ID of position 0 within the given window index.
     fn first_pane_id(&self, session: &str, window_idx: u32) -> Result<String>;
 
-    /// Build a grid of pane IDs.  For tmux/byobu these are real pane IDs;
-    /// for screen each cell is a new window number (as a string).
+    /// Split the target pane horizontally (left/right). Returns the new pane ID.
+    fn split_h(&self, target: &str, dir: &str) -> Result<String>;
+    /// Split the target pane vertically (top/bottom). Returns the new pane ID.
+    fn split_v(&self, target: &str, dir: &str) -> Result<String>;
+
+    /// Build a grid of pane IDs by calling split_h / split_v.
+    /// grid[row][col] holds each pane's ID, with [0][0] = first_id (pre-existing).
     fn build_pane_grid(
         &self,
         first_id: &str,
         n_rows: usize,
         n_cols: usize,
         dir: &str,
-    ) -> Result<Vec<Vec<String>>>;
+    ) -> Result<Vec<Vec<String>>> {
+        let n_cols = n_cols.max(1).min(2);
+        let n_rows = n_rows.max(1);
+        let mut grid = vec![vec![String::new(); n_cols]; n_rows];
+        grid[0][0] = first_id.to_string();
+        if n_cols == 2 {
+            grid[0][1] = self.split_h(first_id, dir)?;
+        }
+        for row in 1..n_rows {
+            grid[row][0] = self.split_v(&grid[row - 1][0], dir)?;
+            if n_cols == 2 {
+                grid[row][1] = self.split_v(&grid[row - 1][1], dir)?;
+            }
+        }
+        Ok(grid)
+    }
 
     fn list_panes(&self, session: &str) -> Result<Vec<(String, u32, u32)>>;
 
@@ -56,6 +78,38 @@ pub fn active_mux(settings: &Settings) -> Box<dyn Mux> {
     }
 }
 
+/// Create a linked window using the given multiplexer.
+pub fn setup_linked_window(
+    session: &str,
+    cfg: &crate::config::LinkedWindowConfig,
+    mux: &dyn Mux,
+) -> Result<()> {
+    if !cfg.enabled {
+        return Ok(());
+    }
+    let ext_session = if cfg.session_name.is_empty() { "claude" } else { cfg.session_name.as_str() };
+    let window     = if cfg.window.is_empty() { ext_session } else { cfg.window.as_str() };
+    let cmd        = if cfg.cmd.is_empty()    { ext_session } else { cfg.cmd.as_str() };
+    let start_dir  = resolve_start_dir(&cfg.start_dir);
+
+    if !mux.session_exists(ext_session) {
+        mux.new_session(ext_session, window, &start_dir)?;
+        mux.send_keys(&format!("{}:{}", ext_session, window), cmd)?;
+    }
+    mux.link_window_from(ext_session, window, session)
+}
+
+fn resolve_start_dir(raw: &str) -> String {
+    if raw.is_empty() {
+        ".".to_string()
+    } else if raw.starts_with("~/") {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{}{}", home, &raw[1..])
+    } else {
+        raw.to_string()
+    }
+}
+
 // ── TmuxLike (tmux + byobu) ───────────────────────────────────────────────────
 
 struct TmuxLike {
@@ -74,6 +128,21 @@ impl TmuxLike {
             bail!("{} {:?} exited with {}", self.bin, args, status);
         }
         Ok(())
+    }
+
+    fn run_output(&self, args: &[&str]) -> Result<String> {
+        let out = Command::new(self.bin)
+            .args(args)
+            .output()
+            .with_context(|| format!("failed to spawn {} {:?}", self.bin, args))?;
+        if !out.status.success() {
+            bail!(
+                "{} {:?} exited with {}: {}",
+                self.bin, args, out.status,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 }
 
@@ -116,23 +185,12 @@ impl Mux for TmuxLike {
         self.run(&["select-window", "-t", &format!("{}:{}", session, index)])
     }
 
-    fn send_keys(&self, target: &str, cmd: &str) -> Result<()> {
-        self.run(&["send-keys", "-t", target, cmd, "Enter"])
+    fn select_pane(&self, target: &str) -> Result<()> {
+        self.run(&["select-pane", "-t", target])
     }
 
-    fn run_output(&self, args: &[&str]) -> Result<String> {
-        let out = Command::new(self.bin)
-            .args(args)
-            .output()
-            .with_context(|| format!("failed to spawn {} {:?}", self.bin, args))?;
-        if !out.status.success() {
-            bail!(
-                "{} {:?} exited with {}: {}",
-                self.bin, args, out.status,
-                String::from_utf8_lossy(&out.stderr)
-            );
-        }
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    fn send_keys(&self, target: &str, cmd: &str) -> Result<()> {
+        self.run(&["send-keys", "-t", target, cmd, "Enter"])
     }
 
     fn attach(&self, session: &str) -> ! {
@@ -151,47 +209,22 @@ impl Mux for TmuxLike {
         self.run_output(&["display-message", "-p", "-t", &target, "#{pane_id}"])
     }
 
-    fn build_pane_grid(
-        &self,
-        first_pane: &str,
-        n_rows: usize,
-        n_cols: usize,
-        dir: &str,
-    ) -> Result<Vec<Vec<String>>> {
-        let n_cols = n_cols.max(1).min(2);
-        let n_rows = n_rows.max(1);
-        let mut grid = vec![vec![String::new(); n_cols]; n_rows];
-        grid[0][0] = first_pane.to_string();
+    fn split_h(&self, target: &str, dir: &str) -> Result<String> {
+        let p = self.run_output(&[
+            "split-window", "-h", "-l", "50%", "-t", target,
+            "-c", dir, "-P", "-F", "#{pane_id}",
+        ])?;
+        if p.is_empty() { bail!("split_h: empty pane id returned for target {}", target); }
+        Ok(p)
+    }
 
-        if n_cols == 2 {
-            let p = self.run_output(&[
-                "split-window", "-h", "-l", "50%", "-t", first_pane,
-                "-c", dir, "-P", "-F", "#{pane_id}",
-            ])?;
-            if p.is_empty() { bail!("build_pane_grid: h-split returned empty pane id"); }
-            grid[0][1] = p;
-        }
-
-        for row in 1..n_rows {
-            let prev_left = grid[row - 1][0].clone();
-            let p = self.run_output(&[
-                "split-window", "-v", "-l", "50%", "-t", &prev_left,
-                "-c", dir, "-P", "-F", "#{pane_id}",
-            ])?;
-            if p.is_empty() { bail!("build_pane_grid: v-split (col 0, row {}) empty", row); }
-            grid[row][0] = p;
-
-            if n_cols == 2 {
-                let prev_right = grid[row - 1][1].clone();
-                let p = self.run_output(&[
-                    "split-window", "-v", "-l", "50%", "-t", &prev_right,
-                    "-c", dir, "-P", "-F", "#{pane_id}",
-                ])?;
-                if p.is_empty() { bail!("build_pane_grid: v-split (col 1, row {}) empty", row); }
-                grid[row][1] = p;
-            }
-        }
-        Ok(grid)
+    fn split_v(&self, target: &str, dir: &str) -> Result<String> {
+        let p = self.run_output(&[
+            "split-window", "-v", "-l", "50%", "-t", target,
+            "-c", dir, "-P", "-F", "#{pane_id}",
+        ])?;
+        if p.is_empty() { bail!("split_v: empty pane id returned for target {}", target); }
+        Ok(p)
     }
 
     fn list_panes(&self, session: &str) -> Result<Vec<(String, u32, u32)>> {
@@ -213,11 +246,16 @@ impl Mux for TmuxLike {
 
 // ── ScreenMux ─────────────────────────────────────────────────────────────────
 
+/// Global counter for generating unique screen window titles.
+/// Screen doesn't have pane IDs; each logical pane becomes a named window.
+static SCREEN_WINDOW_COUNTER: AtomicUsize = AtomicUsize::new(1);
+
 /// GNU Screen backend.
 ///
-/// Screen has no native pane IDs — each logical "pane" in the grid becomes
-/// a separate screen window.  `build_pane_grid` returns window numbers
-/// (as strings) instead of tmux pane IDs.
+/// Screen has no native pane splitting — each logical pane in the grid becomes
+/// a separate screen window.  Pane IDs use the format `"session:window_spec"`
+/// where `window_spec` is either a window index (from `first_pane_id`) or an
+/// auto-generated title (from `split_h` / `split_v`).
 struct ScreenMux;
 
 impl ScreenMux {
@@ -232,21 +270,24 @@ impl ScreenMux {
         Ok(())
     }
 
-    /// `screen -S session -p window -X stuff "cmd\n"`
     fn stuff(&self, session: &str, window: &str, cmd: &str) -> Result<()> {
         self.run(&["-S", session, "-p", window, "-X", "stuff", &format!("{}\n", cmd)])
     }
 
-    /// Create a new named window inside an existing session and return its number.
-    fn new_window_numbered(&self, session: &str, window_name: &str, dir: &str) -> Result<String> {
-        // screen -S session -X screen -t window_name
-        self.run(&["-S", session, "-X", "screen", "-t", window_name])?;
+    /// Extract the session name from a `"session:window"` pane ID.
+    fn session_of(target: &str) -> &str {
+        target.split_once(':').map(|(s, _)| s).unwrap_or(target)
+    }
+
+    /// Create a new screen window in `session` with a unique auto title.
+    fn new_split(&self, session: &str, dir: &str) -> Result<String> {
+        let n = SCREEN_WINDOW_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let title = format!("p{}", n);
+        self.run(&["-S", session, "-X", "screen", "-t", &title])?;
         if !dir.is_empty() {
-            // Send a cd to the newly created window (it's the last window by default)
-            self.stuff(session, window_name, &format!("cd '{}'", dir))?;
+            self.stuff(session, &title, &format!("cd '{}'", dir))?;
         }
-        // Return the window title as the "pane ID"
-        Ok(window_name.to_string())
+        Ok(format!("{}:{}", session, title))
     }
 }
 
@@ -278,16 +319,9 @@ impl Mux for ScreenMux {
             Ok(o) => String::from_utf8_lossy(&o.stdout)
                 .lines()
                 .filter_map(|line| {
-                    // Lines look like: "\t12345.session_name\t(Detached)"
-                    let trimmed = line.trim();
-                    let name = trimmed.split_whitespace().next()?;
-                    // Extract the part after the PID dot
+                    let name = line.trim().split_whitespace().next()?;
                     let session = name.splitn(2, '.').nth(1).unwrap_or(name);
-                    if session.starts_with(prefix) {
-                        Some(session.to_string())
-                    } else {
-                        None
-                    }
+                    if session.starts_with(prefix) { Some(session.to_string()) } else { None }
                 })
                 .collect(),
             Err(_) => vec![],
@@ -295,7 +329,6 @@ impl Mux for ScreenMux {
     }
 
     fn new_session(&self, name: &str, window: &str, dir: &str) -> Result<()> {
-        // -d -m: start detached; -S: name; -t: first window title
         self.run(&["-d", "-m", "-S", name, "-t", window])?;
         if !dir.is_empty() {
             self.stuff(name, window, &format!("cd '{}'", dir))?;
@@ -304,34 +337,27 @@ impl Mux for ScreenMux {
     }
 
     fn new_window(&self, session: &str, window: &str, dir: &str) -> Result<()> {
-        self.new_window_numbered(session, window, dir)?;
+        self.run(&["-S", session, "-X", "screen", "-t", window])?;
+        if !dir.is_empty() {
+            self.stuff(session, window, &format!("cd '{}'", dir))?;
+        }
         Ok(())
     }
 
-    fn select_window(&self, session: &str, _index: usize) -> Result<()> {
-        // screen -S session -X select 0 (select window 0)
-        self.run(&["-S", session, "-X", "select", &_index.to_string()])
+    fn select_window(&self, session: &str, index: usize) -> Result<()> {
+        self.run(&["-S", session, "-X", "select", &index.to_string()])
     }
 
     fn send_keys(&self, target: &str, cmd: &str) -> Result<()> {
-        // target is "session:window_name" or just "window_name" if no colon
-        let (session, window) = if let Some((s, w)) = target.split_once(':') {
-            (s, w)
-        } else {
-            ("", target)
-        };
+        let (session, window) = target
+            .split_once(':')
+            .unwrap_or(("", target));
         if session.is_empty() {
-            // No session prefix — use screen's -X directly (assumes current session)
             self.run(&["-X", "select", window])?;
             self.run(&["-X", "stuff", &format!("{}\n", cmd)])
         } else {
             self.stuff(session, window, cmd)
         }
-    }
-
-    fn run_output(&self, _args: &[&str]) -> Result<String> {
-        // Screen has no equivalent of tmux display-message; return empty
-        Ok(String::new())
     }
 
     fn attach(&self, session: &str) -> ! {
@@ -340,125 +366,27 @@ impl Mux for ScreenMux {
         std::process::exit(1);
     }
 
-    fn first_pane_id(&self, _session: &str, window_idx: u32) -> Result<String> {
-        // For screen, "pane IDs" are just window indices as strings
-        Ok(window_idx.to_string())
+    /// Returns `"session:N"` where N is the window index.
+    /// Screen accepts both window indices and titles in its `-p` flag.
+    fn first_pane_id(&self, session: &str, window_idx: u32) -> Result<String> {
+        Ok(format!("{}:{}", session, window_idx))
     }
 
-    fn build_pane_grid(
-        &self,
-        _first_id: &str,
-        n_rows: usize,
-        n_cols: usize,
-        _dir: &str,
-    ) -> Result<Vec<Vec<String>>> {
-        // For screen, just assign sequential window numbers.
-        // The first window already exists (created by new_session / new_window).
-        // Subsequent ones are created lazily when send_keys is called with their ID.
-        let n_cols = n_cols.max(1).min(2);
-        let n_rows = n_rows.max(1);
-        let mut grid = vec![vec![String::new(); n_cols]; n_rows];
-        let mut next = 0usize;
-        for r in 0..n_rows {
-            for c in 0..n_cols {
-                grid[r][c] = next.to_string();
-                next += 1;
-            }
-        }
-        Ok(grid)
+    /// Creates a new screen window for the split; screen has no visual h/v distinction.
+    fn split_h(&self, target: &str, dir: &str) -> Result<String> {
+        self.new_split(Self::session_of(target), dir)
+    }
+
+    fn split_v(&self, target: &str, dir: &str) -> Result<String> {
+        self.new_split(Self::session_of(target), dir)
     }
 
     fn list_panes(&self, _session: &str) -> Result<Vec<(String, u32, u32)>> {
-        // Screen has no panes; return a single synthetic entry
         Ok(vec![("0".to_string(), 0, 0)])
     }
 }
 
-// ── Legacy free functions (kept for compatibility; delegate to TmuxLike) ──────
-
-/// Run a tmux command, returning an error if it fails.
-pub fn tmux(args: &[&str]) -> Result<()> {
-    TmuxLike::new("tmux").run(args)
-}
-
-/// Run a tmux command capturing stdout; returns trimmed output.
-pub fn tmux_output(args: &[&str]) -> Result<String> {
-    TmuxLike::new("tmux").run_output(args)
-}
-
-/// Send keys to a tmux target pane, appending Enter.
-pub fn tmux_send_keys(target: &str, cmd: &str) -> Result<()> {
-    TmuxLike::new("tmux").send_keys(target, cmd)
-}
-
-/// Return true if a tmux session with the given name exists.
-pub fn tmux_session_exists(name: &str) -> bool {
-    TmuxLike::new("tmux").session_exists(name)
-}
-
-/// Return all running tmux session names whose name starts with `prefix`.
-pub fn sessions_with_prefix(prefix: &str) -> Vec<String> {
-    TmuxLike::new("tmux").sessions_with_prefix(prefix)
-}
-
-/// Replace the current process with `tmux attach-session -t =<session>`.
-pub fn exec_tmux_attach(session: &str) -> ! {
-    TmuxLike::new("tmux").attach(session)
-}
-
-/// List panes in a tmux session.
-pub fn list_panes(session: &str) -> Result<Vec<(String, u32, u32)>> {
-    TmuxLike::new("tmux").list_panes(session)
-}
-
-/// Get the first pane ID of a window by index.
-pub fn first_pane_id(session: &str, window_index: u32) -> Result<String> {
-    TmuxLike::new("tmux").first_pane_id(session, window_index)
-}
-
-/// Build a 2-column grid of panes for one tmux window.
-pub fn build_tab_panes(
-    first_pane: &str,
-    n_rows: usize,
-    n_cols: usize,
-    default_dir: &str,
-) -> Result<Vec<Vec<String>>> {
-    TmuxLike::new("tmux").build_pane_grid(first_pane, n_rows, n_cols, default_dir)
-}
-
-/// Link an external tmux session's window into a dev session.
-pub fn setup_linked_window(
-    session: &str,
-    cfg: &crate::config::LinkedWindowConfig,
-) -> Result<()> {
-    if !cfg.enabled {
-        return Ok(());
-    }
-    let mux = TmuxLike::new("tmux");
-    let ext_session = if cfg.session_name.is_empty() { "claude" } else { cfg.session_name.as_str() };
-    let window     = if cfg.window.is_empty() { ext_session } else { cfg.window.as_str() };
-    let cmd        = if cfg.cmd.is_empty()    { ext_session } else { cfg.cmd.as_str() };
-    let start_dir  = resolve_start_dir(&cfg.start_dir);
-
-    if !mux.session_exists(ext_session) {
-        mux.new_session(ext_session, window, &start_dir)?;
-        mux.send_keys(&format!("{}:{}", ext_session, window), cmd)?;
-    }
-    mux.link_window_from(ext_session, window, session)
-}
-
-fn resolve_start_dir(raw: &str) -> String {
-    if raw.is_empty() {
-        ".".to_string()
-    } else if raw.starts_with("~/") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{}{}", home, &raw[1..])
-    } else {
-        raw.to_string()
-    }
-}
-
-// ── Pane helpers (kept for callers that use the raw parse function) ────────────
+// ── Parse helpers ──────────────────────────────────────────────────────────────
 
 /// Parse `tmux list-panes -F "#{pane_id} #{pane_left} #{pane_top}"` output.
 pub fn parse_panes(output: &str) -> Vec<(String, u32, u32)> {
@@ -507,18 +435,19 @@ mod tests {
     }
 
     #[test]
-    fn screen_build_pane_grid_2x2() {
+    fn screen_first_pane_id_format() {
         let mux = ScreenMux;
-        let grid = mux.build_pane_grid("0", 2, 2, "/tmp").unwrap();
-        assert_eq!(grid.len(), 2);
-        assert_eq!(grid[0], vec!["0", "1"]);
-        assert_eq!(grid[1], vec!["2", "3"]);
+        let id = mux.first_pane_id("mysession", 0).unwrap();
+        assert_eq!(id, "mysession:0");
+        let id2 = mux.first_pane_id("mysession", 1).unwrap();
+        assert_eq!(id2, "mysession:1");
     }
 
     #[test]
-    fn screen_build_pane_grid_1x1() {
-        let mux = ScreenMux;
-        let grid = mux.build_pane_grid("0", 1, 1, "/tmp").unwrap();
-        assert_eq!(grid, vec![vec!["0"]]);
+    fn screen_session_of_extracts_session() {
+        assert_eq!(ScreenMux::session_of("mysession:p1"), "mysession");
+        assert_eq!(ScreenMux::session_of("mysession:0"), "mysession");
+        // no colon → returns whole string as session (fallback)
+        assert_eq!(ScreenMux::session_of("mysession"), "mysession");
     }
 }

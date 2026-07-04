@@ -202,7 +202,7 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
 
     // ── Claude window + attach ────────────────────────────────────────────────
 
-    setup_linked_window(session, &settings.project.claude)?;
+    setup_linked_window(session, &settings.project.claude, mux.as_ref())?;
 
     mux.select_window(session, 0)?;
     mux.attach(session);
