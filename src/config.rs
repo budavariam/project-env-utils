@@ -264,16 +264,10 @@ impl Settings {
         let local = load_json(&settings_file());
         let proj_json = load_json(&config_file);
 
-        let backend = {
-            if let Some(b) = local.get("secret_backend").and_then(|v| v.as_str()) {
-                match b {
-                    "onepassword" => SecretBackend::OnePassword,
-                    "sqlite" => SecretBackend::Sqlite,
-                    _ => SecretBackend::None,
-                }
-            } else {
-                SecretBackend::None
-            }
+        let backend = match local.get("secret_backend").and_then(|v| v.as_str()) {
+            Some("onepassword") => SecretBackend::OnePassword,
+            Some("none") => SecretBackend::None,
+            _ => SecretBackend::Sqlite, // default when unset or "sqlite"
         };
 
         let project = parse_project(&proj_json);

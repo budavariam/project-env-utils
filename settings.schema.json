@@ -1,0 +1,243 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "settings.schema.json",
+  "title": "penv project settings",
+  "description": "Project-wide configuration for project-env-utils (tracked in git).",
+  "type": "object",
+  "required": ["project"],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "type": "object",
+      "description": "Top-level project metadata.",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project identifier. Used as the namespace for local cache folders and the SQLite database."
+        },
+        "op_vault": {
+          "type": "string",
+          "default": "",
+          "description": "1Password vault name. Overridable in settings.local.json."
+        },
+        "op_item_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Prefix prepended to every 1Password item title (e.g. 'myproj' → items named 'myproj/my-api'). Leave empty to use bare service names."
+        },
+        "bucket": {
+          "type": "string",
+          "default": "",
+          "description": "Bucket name used by external secret backends."
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "description": "List of services managed by this project.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Service name — must match the repo folder name adjacent to the penv binary."
+          },
+          "description": {
+            "type": "string",
+            "default": "",
+            "description": "Human-readable description stored as the item note in 1Password."
+          },
+          "env_vars": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Key names shown in the show-info box and 1Password item template."
+          },
+          "env_path": {
+            "type": "string",
+            "description": "Path to the .env file relative to the service repo root. Defaults to '.env' when absent."
+          }
+        }
+      },
+      "default": []
+    },
+    "dev_ui": {
+      "type": "object",
+      "description": "Configuration for the dev-ui tmux session.",
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Repo folder name for the UI service."
+        },
+        "pane_dev_cmd": {
+          "type": "string",
+          "description": "Command run in the dev pane (e.g. 'npm run dev')."
+        },
+        "pane_sb_cmd": {
+          "type": "string",
+          "description": "Command run in the Storybook pane (e.g. 'npm run storybook')."
+        }
+      },
+      "default": {}
+    },
+    "dev_backend": {
+      "type": "object",
+      "description": "Configuration for the dev-backend tmux session.",
+      "additionalProperties": false,
+      "properties": {
+        "session_name": {
+          "type": "string",
+          "description": "tmux session name."
+        },
+        "window_backend": {
+          "type": "array",
+          "description": "Panes in the 'backend' window.",
+          "items": { "$ref": "#/$defs/sessionPane" },
+          "default": []
+        },
+        "window_service": {
+          "type": "array",
+          "description": "Panes in the 'service' window.",
+          "items": { "$ref": "#/$defs/sessionPane" },
+          "default": []
+        }
+      },
+      "default": {}
+    },
+    "sessions": {
+      "type": "array",
+      "description": "Flexible grid sessions launched via 'penv dev-session'.",
+      "items": { "$ref": "#/$defs/session" },
+      "default": []
+    },
+    "claude": {
+      "type": "object",
+      "description": "Linked-window config that attaches an external tmux session window (e.g. a Claude Code session) into dev sessions.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "session_name": {
+          "type": "string",
+          "default": "claude",
+          "description": "External tmux session to link from."
+        },
+        "window": {
+          "type": "string",
+          "default": "",
+          "description": "Window name or index within the external session. Defaults to session_name when empty."
+        },
+        "cmd": {
+          "type": "string",
+          "default": "",
+          "description": "Command to run when the external session is auto-created on first launch."
+        },
+        "start_dir": {
+          "type": "string",
+          "default": "",
+          "description": "Starting directory for auto-created sessions (supports '~')."
+        }
+      },
+      "default": {}
+    }
+  },
+  "$defs": {
+    "sessionPane": {
+      "type": "object",
+      "required": ["repo"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Repo folder name relative to repo_parent()."
+        },
+        "cmd": {
+          "type": "string",
+          "default": "",
+          "description": "Command to run in the pane. Empty = idle shell."
+        }
+      }
+    },
+    "gridPane": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "type": "string",
+          "default": "",
+          "description": "Repo folder name relative to repo_parent(). Empty = working dir stays at repo_parent()."
+        },
+        "cmd": {
+          "type": "string",
+          "default": "",
+          "description": "Command to run in the pane. Empty = idle shell."
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0,
+          "description": "0-based column index (0 or 1)."
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "0-based row index."
+        }
+      }
+    },
+    "tab": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "",
+          "description": "Window name shown in the tmux status bar."
+        },
+        "panes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gridPane" },
+          "default": [],
+          "description": "Panes to place in the grid. Gaps become idle shells automatically."
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "required": ["session_name"],
+      "additionalProperties": false,
+      "properties": {
+        "session_name": {
+          "type": "string",
+          "description": "tmux session name."
+        },
+        "no_preset": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip preset resolution and env sync — for sessions that don't use secrets."
+        },
+        "message": {
+          "type": "string",
+          "default": "",
+          "description": "Custom message shown in the infobox (word-wrapped), displayed above the notes section."
+        },
+        "tabs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tab" },
+          "default": [],
+          "description": "tmux windows (tabs) within this session."
+        }
+      }
+    }
+  }
+}
