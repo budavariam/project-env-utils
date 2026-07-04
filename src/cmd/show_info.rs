@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::config::{local_env_path, Settings};
+use crate::config::{Settings};
 use crate::env_file::parse_env;
 
 // ── Box dimensions ─────────────────────────────────────────────────────────────
@@ -35,6 +35,30 @@ fn service_rows(env_vars: &[String], env: &HashMap<String, String>, label: &str)
 }
 
 // ── Box renderer ───────────────────────────────────────────────────────────────
+
+/// Wrap `text` into lines that fit within `width` characters, breaking on spaces.
+pub fn word_wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.chars().count() + 1 + word.chars().count() <= width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(current.clone());
+            current = word.to_string();
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
 
 pub fn render_box(rows: &[Row]) -> String {
     let top = format!("╔{}╗", "═".repeat(INNER));
@@ -67,6 +91,7 @@ pub fn run(
     preset: &str,
     workspace: Option<&str>,
     services: Option<&[String]>,
+    message: Option<&str>,
     notes: Option<&[String]>,
     settings: &Settings,
 ) -> Result<()> {
@@ -87,7 +112,7 @@ pub fn run(
         .unwrap_or_default();
 
     for service in &svc_list {
-        let path = local_env_path(service, None);
+        let path = settings.project.service_env_path(service, None);
         let env = if path.exists() {
             parse_env(&std::fs::read_to_string(&path).unwrap_or_default())
         } else {
@@ -141,6 +166,16 @@ pub fn run(
         rows.extend(service_rows(&env_vars, &env, &label));
     }
 
+    if let Some(msg) = message {
+        if !msg.is_empty() {
+            let content_width = INNER - 2;
+            rows.push(None);
+            for line in word_wrap(msg, content_width) {
+                rows.push(content_row(&format!("  {}", line)));
+            }
+        }
+    }
+
     if let Some(note_lines) = notes {
         if !note_lines.is_empty() {
             rows.push(None);
@@ -157,6 +192,41 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_wrap_short_text_stays_on_one_line() {
+        let lines = word_wrap("hello world", 20);
+        assert_eq!(lines, vec!["hello world"]);
+    }
+
+    #[test]
+    fn word_wrap_long_text_breaks_on_space() {
+        let lines = word_wrap("one two three four five", 10);
+        assert!(lines.len() > 1);
+        for line in &lines {
+            assert!(line.chars().count() <= 10, "line too long: {:?}", line);
+        }
+    }
+
+    #[test]
+    fn word_wrap_deploy_message_fits_box() {
+        let content_width = BOX_WIDTH - 4; // INNER - 2
+        let msg = "To deploy, run: git subtree pull --prefix  project feat/multi-tenant --squash";
+        let lines = word_wrap(msg, content_width);
+        assert!(lines.len() > 1, "long message should wrap");
+        for line in &lines {
+            assert!(line.chars().count() <= content_width, "wrapped line too long: {:?}", line);
+        }
+        let rejoined = lines.join(" ");
+        assert!(rejoined.contains("subtree"));
+        assert!(rejoined.contains("multi-tenant"));
+    }
+
+    #[test]
+    fn word_wrap_empty_string_returns_one_empty_line() {
+        let lines = word_wrap("", 20);
+        assert_eq!(lines, vec![""]);
+    }
 
     #[test]
     fn render_box_has_correct_width() {

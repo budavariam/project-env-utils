@@ -6,7 +6,7 @@ use anyhow::Result;
 use crate::backend::onepassword::OpBackend;
 use crate::backend::SecretBackend;
 use crate::cmd::sync;
-use crate::config::{local_env_path, Settings};
+use crate::config::{Settings};
 
 fn require_op(backend: &OpBackend) {
     if !backend.available() {
@@ -185,7 +185,7 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
         // Push as the new preset name
         if b.push(svc, &dest, &content) {
             // Also write to local .env so it's immediately usable
-            let dest_path = local_env_path(svc, None);
+            let dest_path = settings.project.service_env_path(svc, None);
             crate::backup::backup_env_before_write(
                 &format!("{}/{}", svc, dest), &dest_path, "op-new-preset",
                 &format!("new-preset: {} copied from {} → {}", svc, src, dest),

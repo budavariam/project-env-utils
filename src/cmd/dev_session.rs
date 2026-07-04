@@ -104,7 +104,7 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     if !session_cfg.no_preset {
         let sync_items: Vec<(&str, Option<&str>)> =
             all_services.iter().map(|s| (s.as_str(), None)).collect();
-        crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref);
+        crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref, settings);
         println!();
     }
 
@@ -178,17 +178,26 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     if let Some(pane_id) = &helper_pane {
         let helper_path = format!("/tmp/dev-session-helper-{}", session);
         let svc_refs: Vec<&str> = all_services.iter().map(|s| s.as_str()).collect();
-        write_close_session_script(&helper_path, session, &penv, &preset, &svc_refs)?;
         let services_arg = all_services
             .iter()
             .map(|s| format!("'{}'", s))
             .collect::<Vec<_>>()
             .join(" ");
+        let message_arg = if session_cfg.message.is_empty() {
+            String::new()
+        } else {
+            format!(" --message '{}'", session_cfg.message.replace('\'', "'\\''"))
+        };
+        let show_info_fn_cmd = format!(
+            "'{}' show-info --preset '{}' --services {}{} --notes 'reload_env    — reload .env from current preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            penv, preset, services_arg, message_arg,
+        );
+        write_close_session_script(&helper_path, session, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
         tmux_send_keys(
             pane_id,
             &format!(
-                "'{}' show-info --preset '{}' --services {} --notes 'reload_env    — reload .env from current preset' 'close_session — close session' ||:; source '{}'; rm -f '{}'",
-                penv, preset, services_arg, helper_path, helper_path,
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path,
             ),
         )?;
     }

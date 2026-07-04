@@ -1,6 +1,6 @@
 //! Shared sync logic: diff, push, pull, list — used by op_sync.
 use crate::backend::SecretBackend;
-use crate::config::{local_env_path, Settings};
+use crate::config::{Settings};
 use crate::env_file::read_file;
 use similar::{ChangeTag, TextDiff};
 
@@ -52,7 +52,7 @@ pub fn cmd_push(
 ) {
     let services = resolve_services(service_filter, settings);
     for service in &services {
-        let path = local_env_path(service, None);
+        let path = settings.project.service_env_path(service, None);
         let content = match read_file(&path) {
             Some(c) => c,
             None => {
@@ -91,7 +91,7 @@ pub fn cmd_pull(
 ) {
     let services = resolve_services(service_filter, settings);
     for service in &services {
-        let dest = local_env_path(service, None);
+        let dest = settings.project.service_env_path(service, None);
         match backend.fetch(service, preset) {
             None => println!(
                 "  skip {} — '{}' not found in {}",
@@ -145,7 +145,7 @@ pub fn cmd_diff(
     let mut any_diff = false;
 
     for service in &services {
-        let local = read_file(&local_env_path(service, None));
+        let local = read_file(&settings.project.service_env_path(service, None));
         let remote = backend.fetch(service, preset);
 
         match (local.as_deref(), remote.as_deref()) {
@@ -369,7 +369,7 @@ mod tests {
             project: ProjectConfig {
                 services: services
                     .iter()
-                    .map(|s| ServiceConfig { name: s.to_string(), description: String::new(), env_vars: vec![] })
+                    .map(|s| ServiceConfig { name: s.to_string(), description: String::new(), env_vars: vec![], env_path: None })
                     .collect(),
                 ..Default::default()
             },

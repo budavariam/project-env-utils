@@ -86,6 +86,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
         &[(repo.as_str(), Some(ui_dir_str.as_str()))],
         &preset,
         bref,
+        settings,
     );
     println!();
 
@@ -140,21 +141,29 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     let helper_path = format!("/tmp/dev-ui-helper-{}", session);
 
     if is_worktree {
-        write_teardown_script(&helper_path, &session, &[(&ui_dir, &root.join(repo))], &penv, &preset, &[repo.as_str()])?;
+        let show_info_fn_cmd = format!(
+            "'{}' show-info --preset '{}' --workspace '{}' --notes 'teardown      — remove worktree & close session' 'reload_env    — reload .env from current preset' 'close_session — close session only' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            penv, preset, ui_dir_s,
+        );
+        write_teardown_script(&helper_path, &session, &[(&ui_dir, &root.join(repo))], &penv, &preset, &[repo.as_str()], &show_info_fn_cmd)?;
         tmux_send_keys(
             &p_shell,
             &format!(
-                "'{}' show-info --preset '{}' --workspace '{}' --notes 'teardown      — remove worktree & close session' 'reload_env    — reload .env from current preset' 'close_session — close session only' ||:; source '{}'; rm -f '{}'",
-                penv, preset, ui_dir_s, helper_path, helper_path,
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path,
             ),
         )?;
     } else {
-        write_close_session_script(&helper_path, &session, &penv, &preset, &[repo.as_str()])?;
+        let show_info_fn_cmd = format!(
+            "'{}' show-info --preset '{}' --workspace '{}' --notes 'reload_env    — reload .env from current preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            penv, preset, ui_dir_s,
+        );
+        write_close_session_script(&helper_path, &session, &penv, &preset, &[repo.as_str()], &show_info_fn_cmd)?;
         tmux_send_keys(
             &p_shell,
             &format!(
-                "'{}' show-info --preset '{}' --workspace '{}' --notes 'reload_env    — reload .env from current preset' 'close_session — close session' ||:; source '{}'; rm -f '{}'",
-                penv, preset, ui_dir_s, helper_path, helper_path,
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path,
             ),
         )?;
     }
@@ -197,10 +206,11 @@ mod tests {
     fn non_worktree_helper_has_close_session_not_teardown() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("h.sh").to_string_lossy().into_owned();
-        write_close_session_script(&p, "my-ui", "/usr/local/bin/penv", "test", &["my-ui"]).unwrap();
+        write_close_session_script(&p, "my-ui", "/usr/local/bin/penv", "test", &["my-ui"], "penv show-info").unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("close_session"));
         assert!(s.contains("reload_env"));
+        assert!(s.contains("show_info"));
         assert!(!s.contains("teardown"));
     }
 
@@ -210,10 +220,11 @@ mod tests {
         let p = dir.path().join("h.sh").to_string_lossy().into_owned();
         let wt = PathBuf::from("/repos/my-ui/.claude/worktrees/feat_foo");
         let repo = PathBuf::from("/repos/my-ui");
-        write_teardown_script(&p, "my-ui_feat_foo", &[(&wt, &repo)], "/usr/local/bin/penv", "test", &["my-ui"]).unwrap();
+        write_teardown_script(&p, "my-ui_feat_foo", &[(&wt, &repo)], "/usr/local/bin/penv", "test", &["my-ui"], "penv show-info").unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("teardown"));
         assert!(s.contains("close_session"));
         assert!(s.contains("reload_env"));
+        assert!(s.contains("show_info"));
     }
 }

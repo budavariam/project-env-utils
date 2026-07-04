@@ -117,7 +117,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
 
     let sync_items: Vec<(&str, Option<&str>)> =
         cfg.window_backend.iter().map(|p| (p.repo.as_str(), None)).collect();
-    crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref);
+    crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref, settings);
     println!();
 
     if tmux_session_exists(&session) {
@@ -192,22 +192,30 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             .map(|(wt, repo)| (wt.as_path(), repo.as_path()))
             .collect();
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
-        write_teardown_script(&helper_path, &session, &wt_refs, &penv, &preset, &svc_refs)?;
+        let show_info_fn_cmd = format!(
+            "'{}' show-info --preset '{}' --services {} --notes 'teardown      — remove worktrees & close session' 'reload_env    — reload .env from current preset' 'close_session — close session only' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            penv, preset, services_arg,
+        );
+        write_teardown_script(&helper_path, &session, &wt_refs, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
         tmux_send_keys(
             &p_shell,
             &format!(
-                "'{}' show-info --preset '{}' --services {} --notes 'teardown      — remove worktrees & close session' 'reload_env    — reload .env from current preset' 'close_session — close session only' ||:; source '{}'; rm -f '{}'",
-                penv, preset, services_arg, helper_path, helper_path,
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path,
             ),
         )?;
     } else {
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
-        write_close_session_script(&helper_path, &session, &penv, &preset, &svc_refs)?;
+        let show_info_fn_cmd = format!(
+            "'{}' show-info --preset '{}' --services {} --notes 'reload_env    — reload .env from current preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            penv, preset, services_arg,
+        );
+        write_close_session_script(&helper_path, &session, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
         tmux_send_keys(
             &p_shell,
             &format!(
-                "'{}' show-info --preset '{}' --services {} --notes 'reload_env    — reload .env from current preset' 'close_session — close session' ||:; source '{}'; rm -f '{}'",
-                penv, preset, services_arg, helper_path, helper_path,
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path,
             ),
         )?;
     }
@@ -261,10 +269,11 @@ mod tests {
     fn close_session_script_references_session() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("helper.sh").to_string_lossy().into_owned();
-        write_close_session_script(&path, "my-backend", "/usr/local/bin/penv", "test", &["my-api"]).unwrap();
+        write_close_session_script(&path, "my-backend", "/usr/local/bin/penv", "test", &["my-api"], "penv show-info").unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("close_session"));
         assert!(content.contains("reload_env"));
+        assert!(content.contains("show_info"));
         assert!(content.contains("my-backend"));
         assert!(!content.contains("teardown"));
     }
@@ -280,11 +289,12 @@ mod tests {
         write_teardown_script(&path, "my-backend_feat_x", &[
             (wt1.as_path(), repo1.as_path()),
             (wt2.as_path(), repo2.as_path()),
-        ], "/usr/local/bin/penv", "test", &["svc-a", "svc-b"]).unwrap();
+        ], "/usr/local/bin/penv", "test", &["svc-a", "svc-b"], "penv show-info").unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("teardown"));
         assert!(content.contains("close_session"));
         assert!(content.contains("reload_env"));
+        assert!(content.contains("show_info"));
         assert!(content.contains("svc-a"));
         assert!(content.contains("svc-b"));
     }

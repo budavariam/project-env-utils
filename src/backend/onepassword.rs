@@ -436,6 +436,11 @@ impl SecretBackend for OpBackend {
         }
         pairs
     }
+
+    fn item_updated_at(&self, service: &str, _preset: &str) -> Option<String> {
+        let item = self.get_item_json(service)?;
+        item.get("updated_at")?.as_str().map(|s| s.to_string())
+    }
 }
 
 #[cfg(test)]

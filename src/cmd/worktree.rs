@@ -258,6 +258,7 @@ pub fn write_close_session_script(
     penv: &str,
     preset: &str,
     services: &[&str],
+    show_info_cmd: &str,
 ) -> Result<()> {
     let reload_cmd = services
         .iter()
@@ -265,8 +266,8 @@ pub fn write_close_session_script(
         .collect::<Vec<_>>()
         .join(" && ");
     let content = format!(
-        "reload_env() {{ {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\necho \"Run reload_env to reload .env from preset '{}', or close_session to close the session.\"\n",
-        reload_cmd, session, preset
+        "reload_env() {{ {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\necho \"Run reload_env to reload .env from preset '{}', or close_session to close the session.\"\n",
+        reload_cmd, session, show_info_cmd, penv, preset, preset
     );
     std::fs::write(path, content)
         .with_context(|| format!("failed to write helper script to {}", path))?;
@@ -282,6 +283,7 @@ pub fn write_teardown_script(
     penv: &str,
     preset: &str,
     services: &[&str],
+    show_info_cmd: &str,
 ) -> Result<()> {
     let pane_id_fmt = "#{pane_id}";
     let mut lines: Vec<String> = vec![
@@ -330,6 +332,8 @@ pub fn write_teardown_script(
         .collect::<Vec<_>>()
         .join(" && ");
     lines.push(format!("reload_env() {{ {}; }}\n", reload_cmd));
+    lines.push(format!("show_info() {{ {}; }}\n", show_info_cmd));
+    lines.push(format!("inspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n", penv, preset));
     lines.push(
         format!(
             "echo \"Run teardown to remove worktrees & close session, reload_env to reload .env from preset '{}', or close_session to just close it.\"\n",
@@ -368,11 +372,12 @@ mod tests {
     fn close_session_script_has_session_name() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("h.sh").to_string_lossy().into_owned();
-        write_close_session_script(&p, "my-session", "/usr/local/bin/penv", "test", &["my-api"]).unwrap();
+        write_close_session_script(&p, "my-session", "/usr/local/bin/penv", "test", &["my-api"], "penv show-info").unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("close_session"));
         assert!(s.contains("my-session"));
         assert!(s.contains("reload_env"));
+        assert!(s.contains("show_info"));
         assert!(!s.contains("teardown"));
     }
 
@@ -391,12 +396,14 @@ mod tests {
             "/usr/local/bin/penv",
             "test",
             &["svc-a", "svc-b"],
+            "penv show-info",
         )
         .unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("teardown"));
         assert!(s.contains("close_session"));
         assert!(s.contains("reload_env"));
+        assert!(s.contains("show_info"));
         assert!(s.contains("svc-a"));
         assert!(s.contains("svc-b"));
     }
