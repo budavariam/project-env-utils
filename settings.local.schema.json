@@ -15,6 +15,12 @@
     "onepassword_vault": {
       "type": "string",
       "description": "Override the 1Password vault name from settings.json. Only relevant when secret_backend is 'onepassword'."
+    },
+    "session_multiplexer": {
+      "type": "string",
+      "enum": ["tmux", "byobu", "screen"],
+      "default": "tmux",
+      "description": "Terminal multiplexer to use for dev sessions."
     }
   }
 }

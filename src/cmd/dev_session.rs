@@ -8,10 +8,7 @@ use anyhow::{bail, Result};
 use crate::cmd::pick_preset::resolve_backend_preset;
 use crate::cmd::worktree::write_close_session_script;
 use crate::config::{repo_parent, repo_root, Settings};
-use crate::tmux::{
-    build_tab_panes, exec_tmux_attach, first_pane_id, sessions_with_prefix,
-    setup_linked_window, tmux, tmux_send_keys, tmux_session_exists,
-};
+use crate::tmux::{active_mux, setup_linked_window};
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
@@ -24,6 +21,7 @@ pub struct DevSessionArgs {
 // ── run() ─────────────────────────────────────────────────────────────────────
 
 pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
+    let mux = active_mux(settings);
     let root = repo_parent();
     let penv = std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
@@ -55,7 +53,7 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     let session = &session_cfg.session_name;
 
     if args.attach {
-        let mut existing = sessions_with_prefix(session);
+        let mut existing = mux.sessions_with_prefix(session);
         existing.sort();
         let target = match existing.len() {
             0 => bail!("No running session found with prefix '{}'", session),
@@ -63,16 +61,16 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             _ => crate::cmd::worktree::pick_session_fzf(&existing)?,
         };
         eprintln!("Attaching to '{}'...", target);
-        exec_tmux_attach(&target);
+        mux.attach(&target);
     }
 
     if session_cfg.tabs.is_empty() {
         bail!("Session '{}' has no tabs configured", session);
     }
 
-    if tmux_session_exists(session) {
+    if mux.session_exists(session) {
         eprintln!("Session '{}' already exists. Attaching...", session);
-        exec_tmux_attach(session);
+        mux.attach(session);
     }
 
     let backend_box = crate::backend::active_backend(settings);
@@ -131,13 +129,13 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         };
 
         if tab_idx == 0 {
-            tmux(&["new-session", "-d", "-s", session, "-n", &tab_name, "-c", default_dir])?;
+            mux.new_session(session, &tab_name, default_dir)?;
         } else {
-            tmux(&["new-window", "-t", session, "-n", &tab_name, "-c", default_dir])?;
+            mux.new_window(session, &tab_name, default_dir)?;
         }
 
-        let first = first_pane_id(session, tab_idx as u32)?;
-        let grid = build_tab_panes(&first, n_rows, n_cols, default_dir)?;
+        let first = mux.first_pane_id(session, tab_idx as u32)?;
+        let grid = mux.build_pane_grid(&first, n_rows, n_cols, default_dir)?;
 
         // Find the first grid position with no non-empty cmd → idle shell candidate.
         if helper_pane.is_none() {
@@ -169,7 +167,7 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             } else {
                 root.join(&pane_cfg.repo).to_string_lossy().into_owned()
             };
-            tmux_send_keys(pane_id, &format!("cd '{}' && {}", dir, pane_cfg.cmd))?;
+            mux.send_keys(pane_id, &format!("cd '{}' && {}", dir, pane_cfg.cmd))?;
         }
     }
 
@@ -193,7 +191,7 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             penv, preset, services_arg, message_arg,
         );
         write_close_session_script(&helper_path, session, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
-        tmux_send_keys(
+        mux.send_keys(
             pane_id,
             &format!(
                 "{}; source '{}'; rm -f '{}'",
@@ -206,8 +204,8 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
 
     setup_linked_window(session, &settings.project.claude)?;
 
-    tmux(&["select-window", "-t", &format!("{}:0", session)])?;
-    exec_tmux_attach(session);
+    mux.select_window(session, 0)?;
+    mux.attach(session);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────

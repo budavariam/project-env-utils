@@ -366,6 +366,7 @@ mod tests {
         Settings {
             secret_backend: SB::None,
             op_vault: String::new(),
+            session_mux: crate::config::SessionMultiplexer::Tmux,
             project: ProjectConfig {
                 services: services
                     .iter()

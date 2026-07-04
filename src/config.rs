@@ -295,11 +295,19 @@ pub enum SecretBackend {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionMultiplexer {
+    Tmux,
+    Byobu,
+    Screen,
+}
+
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub secret_backend: SecretBackend,
     /// 1Password vault name — local override takes precedence over project default.
     pub op_vault: String,
+    pub session_mux: SessionMultiplexer,
     pub project: ProjectConfig,
 }
 
@@ -337,9 +345,16 @@ impl Settings {
             .map(|s| s.to_string())
             .unwrap_or_else(|| project.op_vault.clone());
 
+        let session_mux = match local.get("session_multiplexer").and_then(|v| v.as_str()) {
+            Some("byobu") => SessionMultiplexer::Byobu,
+            Some("screen") => SessionMultiplexer::Screen,
+            _ => SessionMultiplexer::Tmux, // default
+        };
+
         Ok(Settings {
             secret_backend: backend,
             op_vault,
+            session_mux,
             project,
         })
     }

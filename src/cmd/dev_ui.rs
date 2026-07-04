@@ -10,7 +10,7 @@ use crate::cmd::worktree::{
 };
 use crate::config::{repo_parent, repo_root, Settings};
 use crate::tmux::{
-    exec_tmux_attach, list_panes, setup_linked_window, tmux, tmux_send_keys, tmux_session_exists,
+    active_mux, list_panes, setup_linked_window, tmux, tmux_send_keys,
 };
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -26,6 +26,7 @@ pub struct DevUiArgs {
 // ── run() ─────────────────────────────────────────────────────────────────────
 
 pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
+    let mux = active_mux(settings);
     let root = repo_parent();
     let repo = &settings.project.dev_ui.repo;
     let ui_dir = root.join(repo);
@@ -33,7 +34,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     // ── --attach: reconnect to an existing session ────────────────────────────
 
     if args.attach {
-        let mut sessions = crate::tmux::sessions_with_prefix(repo);
+        let mut sessions = mux.sessions_with_prefix(repo);
         sessions.sort();
         let target = match sessions.len() {
             0 => bail!("No running session found with prefix '{}'", repo),
@@ -41,7 +42,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             _ => crate::cmd::worktree::pick_session_fzf(&sessions)?,
         };
         eprintln!("Attaching to '{}'...", target);
-        exec_tmux_attach(&target);
+        mux.attach(&target);
     }
 
     // ── Resolve workspace ────────────────────────────────────────────────────
@@ -90,9 +91,9 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     );
     println!();
 
-    if tmux_session_exists(&session) {
+    if mux.session_exists(&session) {
         eprintln!("Session '{}' already exists. Attaching...", session);
-        exec_tmux_attach(&session);
+        mux.attach(&session);
     }
 
     // ── Create session and first window "ui" ─────────────────────────────────
@@ -176,7 +177,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     tmux(&["select-window", "-t", &format!("{}:ui", session)])?;
     tmux(&["select-pane", "-t", &p_shell])?;
-    exec_tmux_attach(&session);
+    mux.attach(&session);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────

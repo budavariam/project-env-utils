@@ -13,8 +13,7 @@ use crate::cmd::worktree::{
 };
 use crate::config::{repo_parent, repo_root, Settings};
 use crate::tmux::{
-    exec_tmux_attach, first_pane_id, setup_linked_window, tmux, tmux_output, tmux_send_keys,
-    tmux_session_exists,
+    active_mux, first_pane_id, setup_linked_window, tmux, tmux_output, tmux_send_keys,
 };
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -30,6 +29,7 @@ pub struct DevBackendArgs {
 // ── run() ─────────────────────────────────────────────────────────────────────
 
 pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
+    let mux = active_mux(settings);
     let root = repo_parent();
     let cfg = &settings.project.dev_backend;
 
@@ -41,7 +41,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
 
     if args.attach {
         let prefix = &cfg.session_name;
-        let mut sessions = crate::tmux::sessions_with_prefix(prefix);
+        let mut sessions = mux.sessions_with_prefix(prefix);
         sessions.sort();
         let target = match sessions.len() {
             0 => bail!("No running session found with prefix '{}'", prefix),
@@ -49,7 +49,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             _ => crate::cmd::worktree::pick_session_fzf(&sessions)?,
         };
         eprintln!("Attaching to '{}'...", target);
-        exec_tmux_attach(&target);
+        mux.attach(&target);
     }
 
     // ── Resolve worktrees (when --select / --resume) ─────────────────────────
@@ -120,9 +120,9 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref, settings);
     println!();
 
-    if tmux_session_exists(&session) {
+    if mux.session_exists(&session) {
         eprintln!("Session '{}' already exists. Attaching...", session);
-        exec_tmux_attach(&session);
+        mux.attach(&session);
     }
 
     let root_s = root.to_string_lossy();
@@ -258,7 +258,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     // ── Focus and attach ──────────────────────────────────────────────────────
 
     tmux(&["select-window", "-t", &format!("{}:0", session)])?;
-    exec_tmux_attach(&session);
+    mux.attach(&session);
 }
 
 #[cfg(test)]

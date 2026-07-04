@@ -183,6 +183,7 @@ mod tests {
         Settings {
             secret_backend: SB::None,
             op_vault: String::new(),
+            session_mux: crate::config::SessionMultiplexer::Tmux,
             project: ProjectConfig {
                 project_name: "test-proj".to_string(),
                 ..Default::default()
@@ -328,6 +329,7 @@ mod tests {
         let backend = FakeBackend { content: None, label: "1Password" };
         let settings = Settings {    secret_backend: SB::None,
             op_vault: String::new(),
+            session_mux: crate::config::SessionMultiplexer::Tmux,
             project: Default::default(),
         };
         let result = load_service(service, "test", Some(&backend), &settings);
