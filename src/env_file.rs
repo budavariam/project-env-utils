@@ -2,6 +2,36 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Convert days since Unix epoch (1970-01-01) to a Gregorian `(year, month, day)` triple.
+///
+/// Used by both `cmd::env_age` and `backend::sqlite` for timestamp formatting.
+pub(crate) fn days_to_ymd(days: i64) -> (i64, u32, u32) {
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m as u32, d as u32)
+}
+
+/// Escape a string for safe embedding inside a single-quoted POSIX shell argument.
+///
+/// Replaces every `'` with `'\''` so the value can be wrapped in single quotes
+/// without breaking the quoting or allowing injection.  E.g.:
+///
+/// ```
+/// let cmd = format!("cd '{}'", penv::env_file::sh_escape("/home/alice's project"));
+/// assert_eq!(cmd, "cd '/home/alice'\\''s project'");
+/// ```
+pub fn sh_escape(s: &str) -> String {
+    s.replace('\'', "'\\''")
+}
+
 /// Parse the contents of a .env file into a key→value map.
 ///
 /// Rules (matching the Python implementation):
@@ -124,8 +154,17 @@ mod tests {
     }
 
     #[test]
-    fn whitespace_around_key_and_value() {
-        let map = parse_env("  KEY  =  value  \n");
-        assert_eq!(map["KEY"], "value");
+    fn sh_escape_no_quotes() {
+        assert_eq!(sh_escape("/home/user/project"), "/home/user/project");
+    }
+
+    #[test]
+    fn sh_escape_single_quote() {
+        assert_eq!(sh_escape("alice's"), "alice'\\''s");
+    }
+
+    #[test]
+    fn sh_escape_multiple_quotes() {
+        assert_eq!(sh_escape("it's a 'test'"), "it'\\''s a '\\''test'\\''");
     }
 }

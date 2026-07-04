@@ -3,6 +3,7 @@
 //! Project config is read from `settings.json` (tracked in git).
 //! Personal config is read from `settings.local.json` (gitignored).
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
@@ -130,22 +131,31 @@ pub struct ProjectConfig {
 /// Directory that contains the penv settings (= the repo root).
 ///
 /// Resolution order:
-///   1. `PENV_REPO_ROOT` env var (set by `--config` flag or manually)
-///   2. Current directory — if it contains a valid `settings.json`
+///   1. `PENV_REPO_ROOT` env var (set by `--config` flag or manually) — always re-checked
+///   2. Current directory — if it contains a valid `settings.json`  (cached after first detection)
 ///   3. Git root of the current directory — if it contains a valid `settings.json`
 ///   4. Directory containing the penv binary (original fallback)
+static DETECTED_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
 pub fn repo_root() -> PathBuf {
+    // Always honour the env var — tests and --config flag rely on this taking effect
+    // immediately even after the OnceLock is populated.
     if let Ok(override_path) = std::env::var("PENV_REPO_ROOT") {
         return PathBuf::from(override_path);
     }
-    if let Some(found) = detect_settings_dir() {
-        return found;
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| std::fs::canonicalize(&p).ok())
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
+    // Cache the expensive detection (spawns `git rev-parse`) after first call.
+    DETECTED_ROOT
+        .get_or_init(|| {
+            if let Some(found) = detect_settings_dir() {
+                return found;
+            }
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| std::fs::canonicalize(&p).ok())
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .unwrap_or_else(|| PathBuf::from("."))
+        })
+        .clone()
 }
 
 /// Check the current directory then its git root for a valid penv `settings.json`.
@@ -161,16 +171,25 @@ fn detect_settings_dir() -> Option<PathBuf> {
     None
 }
 
-/// Returns true if `dir/settings.json` exists and has a non-empty `project.name`.
+/// Returns true if `dir/settings.json` looks like a penv config.
+///
+/// Requires both a non-empty `project.name` **and** the presence of a
+/// `services` array.  The second check prevents false positives from
+/// unrelated tools (npm, build systems) whose `settings.json` may also
+/// carry a `project.name` field.
 fn is_penv_root(dir: &std::path::Path) -> bool {
     std::fs::read_to_string(dir.join("settings.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| {
-            v.get("project")
+        .map(|v| {
+            let has_name = v
+                .get("project")
                 .and_then(|p| p.get("name"))
                 .and_then(|n| n.as_str())
                 .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            let has_services = v.get("services").and_then(|s| s.as_array()).is_some();
+            has_name && has_services
         })
         .unwrap_or(false)
 }
@@ -552,7 +571,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("settings.json"),
-            r#"{"project":{"name":"MyProj"}}"#,
+            r#"{"project":{"name":"MyProj"},"services":[]}"#,
         )
         .unwrap();
         assert!(is_penv_root(dir.path()));

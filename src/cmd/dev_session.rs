@@ -8,6 +8,7 @@ use anyhow::{bail, Result};
 use crate::cmd::pick_preset::resolve_backend_preset;
 use crate::cmd::worktree::write_close_session_script;
 use crate::config::{repo_parent, repo_root, Settings};
+use crate::env_file::sh_escape;
 use crate::tmux::{active_mux, setup_linked_window};
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -173,7 +174,10 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             } else {
                 root.join(&pane_cfg.repo).to_string_lossy().into_owned()
             };
-            mux.send_keys(pane_id, &format!("cd '{}' && {}", dir, pane_cfg.cmd))?;
+            mux.send_keys(
+                pane_id,
+                &format!("cd '{}' && {}", sh_escape(&dir), pane_cfg.cmd),
+            )?;
         }
     }
 
@@ -197,7 +201,10 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         };
         let show_info_fn_cmd = format!(
             "'{}' show-info --preset '{}' --services {}{} --notes 'reload_env    — reload .env from current preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
-            penv, preset, services_arg, message_arg,
+            sh_escape(&penv),
+            sh_escape(&preset),
+            services_arg,
+            message_arg,
         );
         write_close_session_script(
             &helper_path,

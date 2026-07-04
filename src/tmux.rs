@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::{bail, Context, Result};
 
 use crate::config::{SessionMultiplexer, Settings};
+use crate::env_file::sh_escape;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -357,7 +358,8 @@ impl ScreenMux {
         let title = format!("p{}", n);
         self.run(&["-S", session, "-X", "screen", "-t", &title])?;
         if !dir.is_empty() {
-            self.stuff(session, &title, &format!("cd '{}'", dir))?;
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            self.stuff(session, &title, &format!("cd '{}'", sh_escape(dir)))?;
         }
         Ok(format!("{}:{}", session, title))
     }
@@ -409,7 +411,10 @@ impl Mux for ScreenMux {
     fn new_session(&self, name: &str, window: &str, dir: &str) -> Result<()> {
         self.run(&["-d", "-m", "-S", name, "-t", window])?;
         if !dir.is_empty() {
-            self.stuff(name, window, &format!("cd '{}'", dir))?;
+            // Screen starts the session asynchronously; give the window a moment
+            // to appear before sending keystrokes to it.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            self.stuff(name, window, &format!("cd '{}'", sh_escape(dir)))?;
         }
         Ok(())
     }
@@ -417,7 +422,8 @@ impl Mux for ScreenMux {
     fn new_window(&self, session: &str, window: &str, dir: &str) -> Result<()> {
         self.run(&["-S", session, "-X", "screen", "-t", window])?;
         if !dir.is_empty() {
-            self.stuff(session, window, &format!("cd '{}'", dir))?;
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            self.stuff(session, window, &format!("cd '{}'", sh_escape(dir)))?;
         }
         Ok(())
     }

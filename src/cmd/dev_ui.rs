@@ -9,6 +9,7 @@ use crate::cmd::worktree::{
     write_close_session_script, write_teardown_script,
 };
 use crate::config::{repo_parent, repo_root, Settings};
+use crate::env_file::sh_escape;
 use crate::tmux::{active_mux, setup_linked_window};
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -114,10 +115,13 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     let dev_cmd = &settings.project.dev_ui.pane_dev_cmd;
     let sb_cmd = &settings.project.dev_ui.pane_sb_cmd;
 
-    mux.send_keys(p_ui, &format!("cd '{}' && {}", ui_dir_s, dev_cmd))?;
+    mux.send_keys(
+        p_ui,
+        &format!("cd '{}' && {}", sh_escape(&ui_dir_s), dev_cmd),
+    )?;
     mux.send_keys(
         p_sb,
-        &format!("cd '{}' && sleep 10 && {}", ui_dir_s, sb_cmd),
+        &format!("cd '{}' && sleep 10 && {}", sh_escape(&ui_dir_s), sb_cmd),
     )?;
 
     // Shell pane — helper script
@@ -134,7 +138,9 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
              'close_session — close session only' \
              'show_info     — re-display this box' \
              'inspect_env   — inspect env file ages' ||:",
-            penv, preset, ui_dir_s,
+            sh_escape(&penv),
+            sh_escape(&preset),
+            sh_escape(&ui_dir_s),
         );
         write_teardown_script(
             &helper_path,
@@ -159,7 +165,9 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
              'close_session — close session' \
              'show_info     — re-display this box' \
              'inspect_env   — inspect env file ages' ||:",
-            penv, preset, ui_dir_s,
+            sh_escape(&penv),
+            sh_escape(&preset),
+            sh_escape(&ui_dir_s),
         );
         write_close_session_script(
             &helper_path,

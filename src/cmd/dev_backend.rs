@@ -12,6 +12,7 @@ use crate::cmd::worktree::{
     write_close_session_script, write_teardown_script,
 };
 use crate::config::{repo_parent, repo_root, Settings};
+use crate::env_file::sh_escape;
 use crate::tmux::{active_mux, setup_linked_window};
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         let dir_s = backend_dirs[i].to_string_lossy().into_owned();
         mux.send_keys(
             &backend_pane_ids[i],
-            &format!("cd '{}' && {}", dir_s, pane_cfg.cmd),
+            &format!("cd '{}' && {}", sh_escape(&dir_s), pane_cfg.cmd),
         )?;
     }
 
@@ -184,7 +185,9 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
              'close_session — close session only' \
              'show_info     — re-display this box' \
              'inspect_env   — inspect env file ages' ||:",
-            penv, preset, services_arg,
+            sh_escape(&penv),
+            sh_escape(&preset),
+            services_arg,
         );
         write_teardown_script(
             &helper_path,
@@ -210,7 +213,9 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
              'close_session — close session' \
              'show_info     — re-display this box' \
              'inspect_env   — inspect env file ages' ||:",
-            penv, preset, services_arg,
+            sh_escape(&penv),
+            sh_escape(&preset),
+            services_arg,
         );
         write_close_session_script(
             &helper_path,
@@ -253,7 +258,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             let dir_s = root.join(&pane_cfg.repo).to_string_lossy().into_owned();
             mux.send_keys(
                 &svc_pane_ids[i],
-                &format!("cd '{}' && {}", dir_s, pane_cfg.cmd),
+                &format!("cd '{}' && {}", sh_escape(&dir_s), pane_cfg.cmd),
             )?;
         }
     }

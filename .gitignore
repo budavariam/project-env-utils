@@ -4,3 +4,6 @@ backups/
 .state/
 settings.local.json
 local/
+*.tmp
+*.db
+.env

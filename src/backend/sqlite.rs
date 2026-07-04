@@ -3,15 +3,22 @@
 //! Database location: `<repo_root>/local/secrets.db` (gitignored).
 //! Table: env_secrets(project, service, preset, content, updated_at)
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::{params, Connection};
 
 use super::SecretBackend;
 use crate::config::repo_root;
+use crate::env_file::days_to_ymd;
 
 pub struct SqliteBackend {
     pub db_path: PathBuf,
     pub project_name: String,
+    /// Set to `true` after the schema has been created at least once in this
+    /// process lifetime.  Avoids running `CREATE TABLE IF NOT EXISTS` on every
+    /// single method call; the table DDL is idempotent but the extra round-trip
+    /// adds up when many presets are pushed in a batch.
+    schema_ready: AtomicBool,
 }
 
 impl SqliteBackend {
@@ -19,6 +26,7 @@ impl SqliteBackend {
         Self {
             db_path,
             project_name: project_name.to_string(),
+            schema_ready: AtomicBool::new(false),
         }
     }
 
@@ -31,17 +39,20 @@ impl SqliteBackend {
             std::fs::create_dir_all(parent).ok()?;
         }
         let conn = Connection::open(&self.db_path).ok()?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS env_secrets (
-                project    TEXT NOT NULL,
-                service    TEXT NOT NULL,
-                preset     TEXT NOT NULL,
-                content    TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (project, service, preset)
-            );",
-        )
-        .ok()?;
+        if !self.schema_ready.load(Ordering::Relaxed) {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS env_secrets (
+                    project    TEXT NOT NULL,
+                    service    TEXT NOT NULL,
+                    preset     TEXT NOT NULL,
+                    content    TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (project, service, preset)
+                );",
+            )
+            .ok()?;
+            self.schema_ready.store(true, Ordering::Relaxed);
+        }
         Some(conn)
     }
 }
@@ -151,20 +162,6 @@ fn iso_now() -> String {
     let ss = tod % 60;
     let (y, mo, d) = days_to_ymd(days);
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, hh, mm, ss)
-}
-
-fn days_to_ymd(days: i64) -> (i64, u32, u32) {
-    let z = days + 719468;
-    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m as u32, d as u32)
 }
 
 #[cfg(test)]
