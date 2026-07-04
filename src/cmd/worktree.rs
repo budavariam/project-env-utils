@@ -29,9 +29,7 @@ pub fn pick_worktree_wtf(repo_dir: &Path) -> Result<(PathBuf, String)> {
         .stderr(Stdio::null())
         .status();
     if !check.map(|s| s.success()).unwrap_or(false) {
-        bail!(
-            "'git wtf' alias not configured. Add it to ~/.gitconfig:\n  [alias]\n    wtf = !..."
-        );
+        bail!("'git wtf' alias not configured. Add it to ~/.gitconfig:\n  [alias]\n    wtf = !...");
     }
 
     let out = Command::new("git")
@@ -50,7 +48,11 @@ pub fn pick_worktree_wtf(repo_dir: &Path) -> Result<(PathBuf, String)> {
         .ok()
         .and_then(|o| {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if s.is_empty() { None } else { Some(s) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
         })
         .unwrap_or_else(|| {
             dir.file_name()
@@ -59,10 +61,7 @@ pub fn pick_worktree_wtf(repo_dir: &Path) -> Result<(PathBuf, String)> {
                 .to_string()
         });
 
-    eprintln!(
-        "Workspace: {} (branch: {})",
-        dir_str, branch
-    );
+    eprintln!("Workspace: {} (branch: {})", dir_str, branch);
     Ok((dir, branch))
 }
 
@@ -167,7 +166,11 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
         .ok()
         .and_then(|o| {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if s.is_empty() { None } else { Some(s) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
         })
         .unwrap_or(selected);
 
@@ -317,10 +320,7 @@ pub fn write_teardown_script(
             wt.to_string_lossy()
         ));
     }
-    lines.push(format!(
-        "  tmux kill-session -t \"={}\"\n",
-        session
-    ));
+    lines.push(format!("  tmux kill-session -t \"={}\"\n", session));
     lines.push("}\n".to_string());
     lines.push(format!(
         "close_session() {{ tmux kill-session -t \"={}\"; }}\n",
@@ -333,7 +333,10 @@ pub fn write_teardown_script(
         .join(" && ");
     lines.push(format!("reload_env() {{ {}; }}\n", reload_cmd));
     lines.push(format!("show_info() {{ {}; }}\n", show_info_cmd));
-    lines.push(format!("inspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n", penv, preset));
+    lines.push(format!(
+        "inspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n",
+        penv, preset
+    ));
     lines.push(
         format!(
             "echo \"Run teardown to remove worktrees & close session, reload_env to reload .env from preset '{}', or close_session to just close it.\"\n",
@@ -372,7 +375,15 @@ mod tests {
     fn close_session_script_has_session_name() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("h.sh").to_string_lossy().into_owned();
-        write_close_session_script(&p, "my-session", "/usr/local/bin/penv", "test", &["my-api"], "penv show-info").unwrap();
+        write_close_session_script(
+            &p,
+            "my-session",
+            "/usr/local/bin/penv",
+            "test",
+            &["my-api"],
+            "penv show-info",
+        )
+        .unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("close_session"));
         assert!(s.contains("my-session"));

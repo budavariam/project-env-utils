@@ -45,7 +45,11 @@ fn ask(prompt: &str, default: &str) -> String {
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let v = l.trim().to_string();
-            if v.is_empty() { default.to_string() } else { v }
+            if v.is_empty() {
+                default.to_string()
+            } else {
+                v
+            }
         }
         _ => default.to_string(),
     }
@@ -108,10 +112,16 @@ pub fn run(settings: &Settings) -> Result<()> {
         project_config_file()
             .exists()
             .then(|| {
-                std::fs::read_to_string(project_config_file()).ok().and_then(|s| {
-                    serde_json::from_str::<serde_json::Value>(&s).ok()?.get("project")
-                        ?.get("op_vault")?.as_str().map(str::to_string)
-                })
+                std::fs::read_to_string(project_config_file())
+                    .ok()
+                    .and_then(|s| {
+                        serde_json::from_str::<serde_json::Value>(&s)
+                            .ok()?
+                            .get("project")?
+                            .get("op_vault")?
+                            .as_str()
+                            .map(str::to_string)
+                    })
             })
             .flatten()
             .unwrap_or_else(|| "Project Dev".to_string())
@@ -126,7 +136,10 @@ pub fn run(settings: &Settings) -> Result<()> {
     println!("  ║  This wizard configures 1Password as your secret       ║");
     println!("  ║  backend, creates the vault, and pulls all presets.    ║");
     println!("  ║                                                        ║");
-    println!("  ║  Total steps: {}                                        ║", total);
+    println!(
+        "  ║  Total steps: {}                                        ║",
+        total
+    );
     println!("  ╚════════════════════════════════════════════════════════╝");
 
     wait_enter("Ready to start?");
@@ -203,7 +216,7 @@ pub fn run(settings: &Settings) -> Result<()> {
 
     // ── Step 5: Init vault ──────────────────────────────────────────────────
     print_header(5, total, "Init vault in 1Password");
-    print_info(&format!("Command:  penv op init-vault"));
+    print_info("Command:  penv op init-vault");
     print_info("");
     print_info("This verifies the vault exists and creates it if needed.");
     print_info("It also creates an index item listing all services.");
@@ -211,13 +224,23 @@ pub fn run(settings: &Settings) -> Result<()> {
 
     let updated = Settings::load().unwrap_or_else(|_| settings.clone()); // reload with new settings.local.json
     let backend = OpBackend::new(&vault, &updated.project.op_item_prefix);
-    let services: Vec<String> = updated.project.services.iter().map(|s| s.name.clone()).collect();
+    let services: Vec<String> = updated
+        .project
+        .services
+        .iter()
+        .map(|s| s.name.clone())
+        .collect();
     backend.init_vault(&services)?;
 
     // ── Step 6: Sync presets ────────────────────────────────────────────────
     print_header(6, total, "Sync presets with 1Password");
     let available = crate::config::available_presets(
-        updated.project.services.first().map(|s| s.name.as_str()).unwrap_or("my-service"),
+        updated
+            .project
+            .services
+            .first()
+            .map(|s| s.name.as_str())
+            .unwrap_or("my-service"),
     );
     let avail_str = if available.is_empty() {
         "test, uat, dev".to_string()
@@ -244,15 +267,26 @@ pub fn run(settings: &Settings) -> Result<()> {
             "pull" => {
                 let default_presets = available.join(", ");
                 let raw = ask("Presets to pull (comma-separated)", &default_presets);
-                let presets: Vec<String> = raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                if presets.is_empty() { print_info("No presets entered."); continue; }
-                print_info(&format!("\nWill run:"));
-                for p in &presets { print_info(&format!("  penv op pull {}", p)); }
+                let presets: Vec<String> = raw
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if presets.is_empty() {
+                    print_info("No presets entered.");
+                    continue;
+                }
+                print_info("\nWill run:");
+                for p in &presets {
+                    print_info(&format!("  penv op pull {}", p));
+                }
                 wait_enter(&format!("Pull {} preset(s) from 1Password?", presets.len()));
                 let mut all_ok = true;
                 for p in &presets {
                     print_info(&format!("\n── pulling \"{}\" ──", p));
-                    if !run_live(&[exe_str, "op", "pull", p]) { all_ok = false; }
+                    if !run_live(&[exe_str, "op", "pull", p]) {
+                        all_ok = false;
+                    }
                 }
                 if all_ok {
                     print_info(&format!("✓  All {} preset(s) pulled.", presets.len()));
@@ -265,16 +299,27 @@ pub fn run(settings: &Settings) -> Result<()> {
             "push" => {
                 let default_presets = available.join(", ");
                 let raw = ask("Presets to push (comma-separated)", &default_presets);
-                let presets: Vec<String> = raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                if presets.is_empty() { print_info("No presets entered."); continue; }
-                print_info(&format!("\nWill run:"));
-                for p in &presets { print_info(&format!("  penv op push {}", p)); }
+                let presets: Vec<String> = raw
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if presets.is_empty() {
+                    print_info("No presets entered.");
+                    continue;
+                }
+                print_info("\nWill run:");
+                for p in &presets {
+                    print_info(&format!("  penv op push {}", p));
+                }
                 print_info("This uploads your local .env files to 1Password.");
                 wait_enter(&format!("Push {} preset(s) to 1Password?", presets.len()));
                 let mut all_ok = true;
                 for p in &presets {
                     print_info(&format!("\n── pushing \"{}\" ──", p));
-                    if !run_live(&[exe_str, "op", "push", p]) { all_ok = false; }
+                    if !run_live(&[exe_str, "op", "push", p]) {
+                        all_ok = false;
+                    }
                 }
                 if all_ok {
                     print_info(&format!("✓  All {} preset(s) pushed.", presets.len()));
@@ -289,7 +334,10 @@ pub fn run(settings: &Settings) -> Result<()> {
                 break;
             }
             other => {
-                print_info(&format!("  Unknown action \"{}\". Type pull, push, or skip.", other));
+                print_info(&format!(
+                    "  Unknown action \"{}\". Type pull, push, or skip.",
+                    other
+                ));
             }
         }
     }
@@ -326,7 +374,8 @@ mod tests {
         write_local_settings(serde_json::json!({
             "secret_backend": "onepassword",
             "onepassword_vault": "My Vault",
-        })).unwrap();
+        }))
+        .unwrap();
 
         let content = std::fs::read_to_string(dir.path().join("settings.local.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -346,11 +395,13 @@ mod tests {
         std::fs::write(
             dir.path().join("settings.local.json"),
             r#"{"other_key": true}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         write_local_settings(serde_json::json!({
             "secret_backend": "onepassword",
-        })).unwrap();
+        }))
+        .unwrap();
 
         let content = std::fs::read_to_string(dir.path().join("settings.local.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&content).unwrap();

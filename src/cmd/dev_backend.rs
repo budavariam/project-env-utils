@@ -55,7 +55,9 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     let (backend_dirs, session, is_worktree) = if args.select || args.resume {
         let primary_repo = root.join(&cfg.window_backend[0].repo);
         let branch = if args.resume {
-            args.resume_branch.clone().map(Ok)
+            args.resume_branch
+                .clone()
+                .map(Ok)
                 .unwrap_or_else(|| pick_existing_worktree_fzf(&primary_repo))?
         } else {
             pick_branch_fzf(&primary_repo)?
@@ -73,7 +75,11 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         }
         (dirs, session, true)
     } else {
-        let dirs: Vec<PathBuf> = cfg.window_backend.iter().map(|p| root.join(&p.repo)).collect();
+        let dirs: Vec<PathBuf> = cfg
+            .window_backend
+            .iter()
+            .map(|p| root.join(&p.repo))
+            .collect();
         (dirs, cfg.session_name.clone(), false)
     };
 
@@ -86,8 +92,11 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         let mut preset_name = String::new();
         for (i, pane) in cfg.window_backend.iter().enumerate() {
             let ws = backend_dirs[i].to_string_lossy().into_owned();
-            let p = resolve_workspace_preset(&pane.repo, &ws, args.preset.as_deref(), bref, settings)?;
-            if preset_name.is_empty() { preset_name = p; }
+            let p =
+                resolve_workspace_preset(&pane.repo, &ws, args.preset.as_deref(), bref, settings)?;
+            if preset_name.is_empty() {
+                preset_name = p;
+            }
         }
         preset_name
     } else {
@@ -96,8 +105,11 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
 
     // ── Session guard ─────────────────────────────────────────────────────────
 
-    let sync_items: Vec<(&str, Option<&str>)> =
-        cfg.window_backend.iter().map(|p| (p.repo.as_str(), None)).collect();
+    let sync_items: Vec<(&str, Option<&str>)> = cfg
+        .window_backend
+        .iter()
+        .map(|p| (p.repo.as_str(), None))
+        .collect();
     crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref, settings);
     println!();
 
@@ -129,27 +141,41 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     for dir in backend_dirs.iter().skip(1) {
         let dir_s = dir.to_string_lossy().into_owned();
         let p = mux.split_v(&p_first, &dir_s)?;
-        if p.is_empty() { bail!("pane ID resolution failed for backend pane"); }
+        if p.is_empty() {
+            bail!("pane ID resolution failed for backend pane");
+        }
         backend_pane_ids.push(p);
     }
 
     // Send commands to backend panes
     for (i, pane_cfg) in cfg.window_backend.iter().enumerate() {
         let dir_s = backend_dirs[i].to_string_lossy().into_owned();
-        mux.send_keys(&backend_pane_ids[i], &format!("cd '{}' && {}", dir_s, pane_cfg.cmd))?;
+        mux.send_keys(
+            &backend_pane_ids[i],
+            &format!("cd '{}' && {}", dir_s, pane_cfg.cmd),
+        )?;
     }
 
     // Shell pane — show info + helper script
     let helper_path = format!("/tmp/dev-backend-helper-{}", session);
     let service_names: Vec<String> = cfg.window_backend.iter().map(|p| p.repo.clone()).collect();
-    let services_arg = service_names.iter().map(|s| format!("'{}'", s)).collect::<Vec<_>>().join(" ");
+    let services_arg = service_names
+        .iter()
+        .map(|s| format!("'{}'", s))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     if is_worktree {
-        let worktrees: Vec<(PathBuf, PathBuf)> = cfg.window_backend.iter().enumerate()
+        let worktrees: Vec<(PathBuf, PathBuf)> = cfg
+            .window_backend
+            .iter()
+            .enumerate()
             .map(|(i, pane)| (backend_dirs[i].clone(), root.join(&pane.repo)))
             .collect();
-        let wt_refs: Vec<(&std::path::Path, &std::path::Path)> =
-            worktrees.iter().map(|(wt, r)| (wt.as_path(), r.as_path())).collect();
+        let wt_refs: Vec<(&std::path::Path, &std::path::Path)> = worktrees
+            .iter()
+            .map(|(wt, r)| (wt.as_path(), r.as_path()))
+            .collect();
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
         let show_info_fn_cmd = format!(
             "'{}' show-info --preset '{}' --services {} --notes \
@@ -160,8 +186,22 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
              'inspect_env   — inspect env file ages' ||:",
             penv, preset, services_arg,
         );
-        write_teardown_script(&helper_path, &session, &wt_refs, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
-        mux.send_keys(&p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
+        write_teardown_script(
+            &helper_path,
+            &session,
+            &wt_refs,
+            &penv,
+            &preset,
+            &svc_refs,
+            &show_info_fn_cmd,
+        )?;
+        mux.send_keys(
+            &p_shell,
+            &format!(
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path
+            ),
+        )?;
     } else {
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
         let show_info_fn_cmd = format!(
@@ -172,14 +212,30 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
              'inspect_env   — inspect env file ages' ||:",
             penv, preset, services_arg,
         );
-        write_close_session_script(&helper_path, &session, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
-        mux.send_keys(&p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
+        write_close_session_script(
+            &helper_path,
+            &session,
+            &penv,
+            &preset,
+            &svc_refs,
+            &show_info_fn_cmd,
+        )?;
+        mux.send_keys(
+            &p_shell,
+            &format!(
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path
+            ),
+        )?;
     }
 
     // ── Window 1: service (window_service panes) ──────────────────────────────
 
     if !cfg.window_service.is_empty() {
-        let first_svc_s = root.join(&cfg.window_service[0].repo).to_string_lossy().into_owned();
+        let first_svc_s = root
+            .join(&cfg.window_service[0].repo)
+            .to_string_lossy()
+            .into_owned();
         mux.new_window(&session, "service", &first_svc_s)?;
         let p_svc_first = mux.first_pane_id(&session, 1)?;
 
@@ -187,13 +243,18 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         for pane_cfg in cfg.window_service.iter().skip(1) {
             let dir_s = root.join(&pane_cfg.repo).to_string_lossy().into_owned();
             let p = mux.split_h(&p_svc_first, &dir_s)?;
-            if p.is_empty() { bail!("pane ID resolution failed for service window"); }
+            if p.is_empty() {
+                bail!("pane ID resolution failed for service window");
+            }
             svc_pane_ids.push(p);
         }
 
         for (i, pane_cfg) in cfg.window_service.iter().enumerate() {
             let dir_s = root.join(&pane_cfg.repo).to_string_lossy().into_owned();
-            mux.send_keys(&svc_pane_ids[i], &format!("cd '{}' && {}", dir_s, pane_cfg.cmd))?;
+            mux.send_keys(
+                &svc_pane_ids[i],
+                &format!("cd '{}' && {}", dir_s, pane_cfg.cmd),
+            )?;
         }
     }
 
@@ -215,7 +276,15 @@ mod tests {
     fn close_session_script_references_session() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("helper.sh").to_string_lossy().into_owned();
-        write_close_session_script(&path, "my-backend", "/usr/local/bin/penv", "test", &["my-api"], "penv show-info").unwrap();
+        write_close_session_script(
+            &path,
+            "my-backend",
+            "/usr/local/bin/penv",
+            "test",
+            &["my-api"],
+            "penv show-info",
+        )
+        .unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("close_session"));
         assert!(content.contains("reload_env"));
@@ -232,10 +301,19 @@ mod tests {
         let repo1 = PathBuf::from("/repos/svc-a");
         let wt2 = PathBuf::from("/repos/svc-b/.claude/worktrees/feat_x");
         let repo2 = PathBuf::from("/repos/svc-b");
-        write_teardown_script(&path, "my-backend_feat_x", &[
-            (wt1.as_path(), repo1.as_path()),
-            (wt2.as_path(), repo2.as_path()),
-        ], "/usr/local/bin/penv", "test", &["svc-a", "svc-b"], "penv show-info").unwrap();
+        write_teardown_script(
+            &path,
+            "my-backend_feat_x",
+            &[
+                (wt1.as_path(), repo1.as_path()),
+                (wt2.as_path(), repo2.as_path()),
+            ],
+            "/usr/local/bin/penv",
+            "test",
+            &["svc-a", "svc-b"],
+            "penv show-info",
+        )
+        .unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("teardown"));
         assert!(content.contains("close_session"));

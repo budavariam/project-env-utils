@@ -10,9 +10,7 @@ use anyhow::Result;
 
 use crate::backend::SecretBackend;
 use crate::cmd::sync::unified_diff;
-use crate::config::{
-    backups_dir, fallback_profile_path, repo_root, Settings,
-};
+use crate::config::{backups_dir, fallback_profile_path, repo_root, Settings};
 use crate::env_file::{read_file, write_file};
 use crate::state::{all_tracked_services, all_tracked_workspaces, State};
 
@@ -233,12 +231,21 @@ fn handle(
                 if local_str != pl.as_str() {
                     println!(
                         "\n  {} [{}]: .env differs from {}",
-                        label, preset, settings.project.preset_local_rel(service, preset)
+                        label,
+                        preset,
+                        settings.project.preset_local_rel(service, preset)
                     );
                     backup.save(label, local.as_deref(), Some(pl));
-                    let reload_label = format!("Reload from {}", settings.project.preset_local_rel(service, preset));
-                    let write_label = format!("Write current .env → {}", settings.project.preset_local_rel(service, preset));
-                    let vault_label_opt = backend.map(|b| format!("Push current .env → {}", b.label()));
+                    let reload_label = format!(
+                        "Reload from {}",
+                        settings.project.preset_local_rel(service, preset)
+                    );
+                    let write_label = format!(
+                        "Write current .env → {}",
+                        settings.project.preset_local_rel(service, preset)
+                    );
+                    let vault_label_opt =
+                        backend.map(|b| format!("Push current .env → {}", b.label()));
                     let mut opt_strs: Vec<(&str, &str)> = vec![
                         ("d", "Show diff"),
                         ("r", reload_label.as_str()),
@@ -264,7 +271,8 @@ fn handle(
                         save_state(preset);
                         backup.log(&format!(
                             "\n[{}] reloaded from {}",
-                            label, settings.project.preset_local_rel(service, preset)
+                            label,
+                            settings.project.preset_local_rel(service, preset)
                         ));
                         println!("    Reloaded.");
                     } else if choice == "w" {
@@ -272,16 +280,21 @@ fn handle(
                         save_state(preset);
                         backup.log(&format!(
                             "\n[{}] wrote current .env → {}",
-                            label, settings.project.preset_local_rel(service, preset)
+                            label,
+                            settings.project.preset_local_rel(service, preset)
                         ));
-                        println!("    Saved to {}.", settings.project.preset_local_rel(service, preset));
+                        println!(
+                            "    Saved to {}.",
+                            settings.project.preset_local_rel(service, preset)
+                        );
                     } else if choice == "v" {
                         if let Some(b) = backend {
                             push_with_bucket(b, service, preset, local_str);
                             save_state(preset);
                             backup.log(&format!(
                                 "\n[{}] pushed current .env → {}",
-                                label, b.label()
+                                label,
+                                b.label()
                             ));
                             println!("    Pushed to {}.", b.label());
                         }
@@ -446,7 +459,11 @@ fn handle(
                 show_diff(
                     loc,
                     rem,
-                    &format!("{}/{}", b.label().to_lowercase(), b.key_display(service, preset)),
+                    &format!(
+                        "{}/{}",
+                        b.label().to_lowercase(),
+                        b.key_display(service, preset)
+                    ),
                     &format!("local/{service}/.env"),
                 );
                 choice = menu(opts, "s");
@@ -502,7 +519,11 @@ pub fn startup_sync_check(
     println!("Checking env sync for preset '{}':", preset);
     for (service, workspace) in services {
         let label = workspace
-            .and_then(|ws| std::path::Path::new(ws).file_name().and_then(|n| n.to_str()))
+            .and_then(|ws| {
+                std::path::Path::new(ws)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+            })
             .map(|name| format!("{}/{}", service, name))
             .unwrap_or_else(|| service.to_string());
         let local_path = settings.project.service_env_path(service, *workspace);
@@ -532,10 +553,17 @@ pub fn startup_sync_check(
                 };
                 println!(
                     "\n  {} [{}]: differs from {}  {}",
-                    label, preset, b.label(), direction
+                    label,
+                    preset,
+                    b.label(),
+                    direction
                 );
                 let default = if local_is_newer { "push" } else { "p" };
-                let from_label = format!("{}/{}", b.label().to_lowercase(), b.key_display(service, preset));
+                let from_label = format!(
+                    "{}/{}",
+                    b.label().to_lowercase(),
+                    b.key_display(service, preset)
+                );
                 let to_label = format!("local/{}", label);
                 let push_desc = format!("push local → {}  (your changes → backend)", b.label());
                 let pull_desc = format!("pull from {}  (overwrite local)", b.label());
@@ -553,7 +581,9 @@ pub fn startup_sync_check(
                 }
                 if choice == "p" {
                     crate::backup::backup_env_before_write(
-                        &label, &local_path, "startup-sync-pull",
+                        &label,
+                        &local_path,
+                        "startup-sync-pull",
                         &format!("user chose pull from {}", b.label()),
                     );
                     if let Err(e) = write_file(&local_path, rem) {
@@ -564,7 +594,8 @@ pub fn startup_sync_check(
                     }
                 } else if choice == "push" {
                     crate::backup::log_backend_push(
-                        &label, "startup-sync-push",
+                        &label,
+                        "startup-sync-push",
                         &format!("user chose push to {}", b.label()),
                     );
                     push_with_bucket(b, service, preset, loc);
@@ -579,10 +610,15 @@ pub fn startup_sync_check(
             (None, Some(rem)) => {
                 println!(
                     "\n  {} [{}]: .env missing — found in {}",
-                    label, preset, b.label()
+                    label,
+                    preset,
+                    b.label()
                 );
                 let opts: &[(&str, &str)] = &[
-                    ("p", &format!("pull from {}  (create local .env)", b.label())),
+                    (
+                        "p",
+                        &format!("pull from {}  (create local .env)", b.label()),
+                    ),
                     ("s", "skip"),
                 ];
                 let choice = menu(opts, "p");
@@ -591,7 +627,9 @@ pub fn startup_sync_check(
                         let _ = std::fs::create_dir_all(parent);
                     }
                     crate::backup::backup_env_before_write(
-                        &label, &local_path, "startup-sync-pull",
+                        &label,
+                        &local_path,
+                        "startup-sync-pull",
                         &format!("created from {} (was missing locally)", b.label()),
                     );
                     if let Err(e) = write_file(&local_path, rem) {
@@ -609,17 +647,21 @@ pub fn startup_sync_check(
             (Some(loc), None) => {
                 println!(
                     "\n  {} [{}]: local .env not in {} yet",
-                    label, preset, b.label()
+                    label,
+                    preset,
+                    b.label()
                 );
-                let opts: &[(&str, &str)] = &[
-                    ("push", &format!("push to {}", b.label())),
-                    ("s", "skip"),
-                ];
+                let opts: &[(&str, &str)] =
+                    &[("push", &format!("push to {}", b.label())), ("s", "skip")];
                 let choice = menu(opts, "s");
                 if choice == "push" {
                     crate::backup::log_backend_push(
-                        &label, "startup-sync-push",
-                        &format!("user pushed local .env to {} (was missing in backend)", b.label()),
+                        &label,
+                        "startup-sync-push",
+                        &format!(
+                            "user pushed local .env to {} (was missing in backend)",
+                            b.label()
+                        ),
                     );
                     push_with_bucket(b, service, preset, loc);
                     println!("    Pushed to {}.", b.label());
@@ -632,7 +674,9 @@ pub fn startup_sync_check(
             (None, None) => {
                 println!(
                     "  {} [{}]: .env missing locally and in {}",
-                    label, preset, b.label()
+                    label,
+                    preset,
+                    b.label()
                 );
             }
         }
@@ -643,8 +687,12 @@ pub fn startup_sync_check(
 /// If the cache doesn't exist, the service .env counts as newer (user may have
 /// made changes that were never captured).
 fn is_service_env_newer(service_env: &Path, cache_path: &Path) -> bool {
-    let env_mtime = std::fs::metadata(service_env).and_then(|m| m.modified()).ok();
-    let cache_mtime = std::fs::metadata(cache_path).and_then(|m| m.modified()).ok();
+    let env_mtime = std::fs::metadata(service_env)
+        .and_then(|m| m.modified())
+        .ok();
+    let cache_mtime = std::fs::metadata(cache_path)
+        .and_then(|m| m.modified())
+        .ok();
     match (env_mtime, cache_mtime) {
         (Some(e), Some(c)) => e > c,
         (Some(_), None) => true,
@@ -715,9 +763,15 @@ fn check_one_quiet(
                 } else {
                     format!("env/{}/{}.env", service, preset)
                 };
-                println!("\n  {} [{}]: .env differs from {}", label, preset, ref_label);
+                println!(
+                    "\n  {} [{}]: .env differs from {}",
+                    label, preset, ref_label
+                );
                 let reload_label = format!("reload from {}", ref_label);
-                let write_label = format!("write current .env → {}", settings.project.preset_local_rel(service, preset));
+                let write_label = format!(
+                    "write current .env → {}",
+                    settings.project.preset_local_rel(service, preset)
+                );
                 let vault_label_opt = backend.map(|b| format!("push current .env → {}", b.label()));
                 let mut opt_strs: Vec<(&str, &str)> = vec![
                     ("d", "show diff"),
@@ -730,12 +784,19 @@ fn check_one_quiet(
                 opt_strs.push(("s", "skip"));
                 let mut choice = menu(&opt_strs, "r");
                 while choice == "d" {
-                    show_diff(loc, r, &format!("current {}/{}", service, label), &ref_label);
+                    show_diff(
+                        loc,
+                        r,
+                        &format!("current {}/{}", service, label),
+                        &ref_label,
+                    );
                     choice = menu(&opt_strs, "r");
                 }
                 if choice == "r" {
                     crate::backup::backup_env_before_write(
-                        label, local_path, "startup-sync-reload",
+                        label,
+                        local_path,
+                        "startup-sync-reload",
                         &format!("user reloaded from {} (no backend)", ref_label),
                     );
                     if let Err(e) = write_file(local_path, r) {
@@ -751,7 +812,10 @@ fn check_one_quiet(
                     if let Err(e) = std::fs::write(&target, loc) {
                         eprintln!("    error writing local cache: {}", e);
                     } else {
-                        println!("    Saved to {}.", settings.project.preset_local_rel(service, preset));
+                        println!(
+                            "    Saved to {}.",
+                            settings.project.preset_local_rel(service, preset)
+                        );
                     }
                 } else if choice == "v" {
                     if let Some(b) = backend {

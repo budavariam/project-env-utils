@@ -10,6 +10,8 @@ use crate::config::{SessionMultiplexer, Settings};
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 pub trait Mux: Send + Sync {
+    /// Human-readable backend name, used in log messages.
+    #[allow(dead_code)]
     fn name(&self) -> &'static str;
 
     fn session_exists(&self, name: &str) -> bool;
@@ -19,7 +21,9 @@ pub trait Mux: Send + Sync {
     fn new_window(&self, session: &str, window: &str, dir: &str) -> Result<()>;
     fn select_window(&self, session: &str, index: usize) -> Result<()>;
     /// Focus a specific pane. No-op on backends that have no sub-window panes.
-    fn select_pane(&self, _target: &str) -> Result<()> { Ok(()) }
+    fn select_pane(&self, _target: &str) -> Result<()> {
+        Ok(())
+    }
     fn send_keys(&self, target: &str, cmd: &str) -> Result<()>;
 
     /// Replace the current process with an attach command. Never returns.
@@ -42,7 +46,7 @@ pub trait Mux: Send + Sync {
         n_cols: usize,
         dir: &str,
     ) -> Result<Vec<Vec<String>>> {
-        let n_cols = n_cols.max(1).min(2);
+        let n_cols = n_cols.clamp(1, 2);
         let n_rows = n_rows.max(1);
         let mut grid = vec![vec![String::new(); n_cols]; n_rows];
         grid[0][0] = first_id.to_string();
@@ -58,11 +62,18 @@ pub trait Mux: Send + Sync {
         Ok(grid)
     }
 
+    /// List panes in a session; used for diagnostics and tests.
+    #[allow(dead_code)]
     fn list_panes(&self, session: &str) -> Result<Vec<(String, u32, u32)>>;
 
     /// Link an external session's window into `dst_session` as a new tab.
     /// Default is a no-op (screen does not support window linking).
-    fn link_window_from(&self, src_session: &str, src_window: &str, dst_session: &str) -> Result<()> {
+    fn link_window_from(
+        &self,
+        src_session: &str,
+        src_window: &str,
+        dst_session: &str,
+    ) -> Result<()> {
         let _ = (src_session, src_window, dst_session);
         Ok(())
     }
@@ -72,8 +83,8 @@ pub trait Mux: Send + Sync {
 
 pub fn active_mux(settings: &Settings) -> Box<dyn Mux> {
     match settings.session_mux {
-        SessionMultiplexer::Tmux   => Box::new(TmuxLike::new("tmux")),
-        SessionMultiplexer::Byobu  => Box::new(TmuxLike::new("byobu")),
+        SessionMultiplexer::Tmux => Box::new(TmuxLike::new("tmux")),
+        SessionMultiplexer::Byobu => Box::new(TmuxLike::new("byobu")),
         SessionMultiplexer::Screen => Box::new(ScreenMux),
     }
 }
@@ -87,10 +98,22 @@ pub fn setup_linked_window(
     if !cfg.enabled {
         return Ok(());
     }
-    let ext_session = if cfg.session_name.is_empty() { "claude" } else { cfg.session_name.as_str() };
-    let window     = if cfg.window.is_empty() { ext_session } else { cfg.window.as_str() };
-    let cmd        = if cfg.cmd.is_empty()    { ext_session } else { cfg.cmd.as_str() };
-    let start_dir  = resolve_start_dir(&cfg.start_dir);
+    let ext_session = if cfg.session_name.is_empty() {
+        "claude"
+    } else {
+        cfg.session_name.as_str()
+    };
+    let window = if cfg.window.is_empty() {
+        ext_session
+    } else {
+        cfg.window.as_str()
+    };
+    let cmd = if cfg.cmd.is_empty() {
+        ext_session
+    } else {
+        cfg.cmd.as_str()
+    };
+    let start_dir = resolve_start_dir(&cfg.start_dir);
 
     if !mux.session_exists(ext_session) {
         mux.new_session(ext_session, window, &start_dir)?;
@@ -117,7 +140,9 @@ struct TmuxLike {
 }
 
 impl TmuxLike {
-    fn new(bin: &'static str) -> Self { Self { bin } }
+    fn new(bin: &'static str) -> Self {
+        Self { bin }
+    }
 
     fn run(&self, args: &[&str]) -> Result<()> {
         let status = Command::new(self.bin)
@@ -138,7 +163,9 @@ impl TmuxLike {
         if !out.status.success() {
             bail!(
                 "{} {:?} exited with {}: {}",
-                self.bin, args, out.status,
+                self.bin,
+                args,
+                out.status,
                 String::from_utf8_lossy(&out.stderr)
             );
         }
@@ -147,7 +174,9 @@ impl TmuxLike {
 }
 
 impl Mux for TmuxLike {
-    fn name(&self) -> &'static str { self.bin }
+    fn name(&self) -> &'static str {
+        self.bin
+    }
 
     fn session_exists(&self, name: &str) -> bool {
         Command::new(self.bin)
@@ -200,7 +229,10 @@ impl Mux for TmuxLike {
             &["attach-session", "-t", &format!("={}", session)]
         };
         let err = Command::new(self.bin).args(args).exec();
-        eprintln!("Failed to attach to {} session '{}': {}", self.bin, session, err);
+        eprintln!(
+            "Failed to attach to {} session '{}': {}",
+            self.bin, session, err
+        );
         std::process::exit(1);
     }
 
@@ -211,35 +243,67 @@ impl Mux for TmuxLike {
 
     fn split_h(&self, target: &str, dir: &str) -> Result<String> {
         let p = self.run_output(&[
-            "split-window", "-h", "-l", "50%", "-t", target,
-            "-c", dir, "-P", "-F", "#{pane_id}",
+            "split-window",
+            "-h",
+            "-l",
+            "50%",
+            "-t",
+            target,
+            "-c",
+            dir,
+            "-P",
+            "-F",
+            "#{pane_id}",
         ])?;
-        if p.is_empty() { bail!("split_h: empty pane id returned for target {}", target); }
+        if p.is_empty() {
+            bail!("split_h: empty pane id returned for target {}", target);
+        }
         Ok(p)
     }
 
     fn split_v(&self, target: &str, dir: &str) -> Result<String> {
         let p = self.run_output(&[
-            "split-window", "-v", "-l", "50%", "-t", target,
-            "-c", dir, "-P", "-F", "#{pane_id}",
+            "split-window",
+            "-v",
+            "-l",
+            "50%",
+            "-t",
+            target,
+            "-c",
+            dir,
+            "-P",
+            "-F",
+            "#{pane_id}",
         ])?;
-        if p.is_empty() { bail!("split_v: empty pane id returned for target {}", target); }
+        if p.is_empty() {
+            bail!("split_v: empty pane id returned for target {}", target);
+        }
         Ok(p)
     }
 
     fn list_panes(&self, session: &str) -> Result<Vec<(String, u32, u32)>> {
         let out = self.run_output(&[
-            "list-panes", "-t", &format!("={}", session),
-            "-F", "#{pane_id} #{pane_left} #{pane_top}",
+            "list-panes",
+            "-t",
+            &format!("={}", session),
+            "-F",
+            "#{pane_id} #{pane_left} #{pane_top}",
         ])?;
         Ok(parse_panes(&out))
     }
 
-    fn link_window_from(&self, src_session: &str, src_window: &str, dst_session: &str) -> Result<()> {
+    fn link_window_from(
+        &self,
+        src_session: &str,
+        src_window: &str,
+        dst_session: &str,
+    ) -> Result<()> {
         self.run(&[
             "link-window",
-            "-s", &format!("{}:{}", src_session, src_window),
-            "-t", &format!("{}:", dst_session),
+            "-s",
+            &format!("{}:{}", src_session, src_window),
+            "-t",
+            &format!("{}:", dst_session),
         ])
     }
 }
@@ -271,7 +335,15 @@ impl ScreenMux {
     }
 
     fn stuff(&self, session: &str, window: &str, cmd: &str) -> Result<()> {
-        self.run(&["-S", session, "-p", window, "-X", "stuff", &format!("{}\n", cmd)])
+        self.run(&[
+            "-S",
+            session,
+            "-p",
+            window,
+            "-X",
+            "stuff",
+            &format!("{}\n", cmd),
+        ])
     }
 
     /// Extract the session name from a `"session:window"` pane ID.
@@ -292,7 +364,9 @@ impl ScreenMux {
 }
 
 impl Mux for ScreenMux {
-    fn name(&self) -> &'static str { "screen" }
+    fn name(&self) -> &'static str {
+        "screen"
+    }
 
     fn session_exists(&self, name: &str) -> bool {
         let out = Command::new("screen")
@@ -319,9 +393,13 @@ impl Mux for ScreenMux {
             Ok(o) => String::from_utf8_lossy(&o.stdout)
                 .lines()
                 .filter_map(|line| {
-                    let name = line.trim().split_whitespace().next()?;
-                    let session = name.splitn(2, '.').nth(1).unwrap_or(name);
-                    if session.starts_with(prefix) { Some(session.to_string()) } else { None }
+                    let name = line.split_whitespace().next()?;
+                    let session = name.split_once('.').map(|(_, s)| s).unwrap_or(name);
+                    if session.starts_with(prefix) {
+                        Some(session.to_string())
+                    } else {
+                        None
+                    }
                 })
                 .collect(),
             Err(_) => vec![],
@@ -349,9 +427,7 @@ impl Mux for ScreenMux {
     }
 
     fn send_keys(&self, target: &str, cmd: &str) -> Result<()> {
-        let (session, window) = target
-            .split_once(':')
-            .unwrap_or(("", target));
+        let (session, window) = target.split_once(':').unwrap_or(("", target));
         if session.is_empty() {
             self.run(&["-X", "select", window])?;
             self.run(&["-X", "stuff", &format!("{}\n", cmd)])
@@ -389,15 +465,17 @@ impl Mux for ScreenMux {
 // ── Parse helpers ──────────────────────────────────────────────────────────────
 
 /// Parse `tmux list-panes -F "#{pane_id} #{pane_left} #{pane_top}"` output.
-pub fn parse_panes(output: &str) -> Vec<(String, u32, u32)> {
+// Used by TmuxLike::list_panes and by unit tests; not called from the binary entry point.
+#[allow(dead_code)]
+pub(crate) fn parse_panes(output: &str) -> Vec<(String, u32, u32)> {
     let mut panes: Vec<(String, u32, u32)> = output
         .lines()
         .filter_map(|line| {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 3 {
-                let id   = parts[0].to_string();
+                let id = parts[0].to_string();
                 let left = parts[1].parse::<u32>().ok()?;
-                let top  = parts[2].parse::<u32>().ok()?;
+                let top = parts[2].parse::<u32>().ok()?;
                 Some((id, left, top))
             } else {
                 None

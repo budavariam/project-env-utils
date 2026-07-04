@@ -227,7 +227,9 @@ impl ProjectConfig {
         if let Some(ws) = workspace {
             return PathBuf::from(ws).join(".env");
         }
-        let custom = self.services.iter()
+        let custom = self
+            .services
+            .iter()
             .find(|s| s.name == service)
             .and_then(|s| s.env_path.as_deref());
         repo_parent().join(service).join(custom.unwrap_or(".env"))
@@ -449,7 +451,6 @@ mod tests {
         assert_eq!(presets, vec!["dev", "test", "uat"]);
     }
 
-
     #[test]
     fn settings_onepassword_vault_override() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -460,7 +461,11 @@ mod tests {
         write!(pf, r#"{{"project":{{"name":"TestProj"}}}}"#).unwrap();
         // settings.local.json with backend override
         let mut lf = std::fs::File::create(dir.path().join("settings.local.json")).unwrap();
-        write!(lf, r#"{{"secret_backend": "onepassword", "onepassword_vault": "My Vault"}}"#).unwrap();
+        write!(
+            lf,
+            r#"{{"secret_backend": "onepassword", "onepassword_vault": "My Vault"}}"#
+        )
+        .unwrap();
 
         std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
         let s = Settings::load().unwrap();

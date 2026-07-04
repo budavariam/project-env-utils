@@ -9,12 +9,11 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::backend::SecretBackend;
-use crate::config::{
-    available_presets, fallback_profile_path,
-    Settings,
-};
+use crate::config::{available_presets, fallback_profile_path, Settings};
 use crate::env_file::write_file;
-use crate::state::{get_service_preset, get_workspace_preset, set_service_preset, set_workspace_preset};
+use crate::state::{
+    get_service_preset, get_workspace_preset, set_service_preset, set_workspace_preset,
+};
 
 fn err(msg: &str) {
     eprintln!("{}", msg);
@@ -80,11 +79,20 @@ pub fn load_service_for_pick(
     if let Some(b) = backend {
         if let Some(content) = b.fetch(service, preset) {
             crate::backup::backup_env_before_write(
-                &label, dest, "load-service-for-pick",
+                &label,
+                dest,
+                "load-service-for-pick",
                 &format!("loading from {}", b.label()),
             );
             if write_file(dest, &content).is_ok() {
-                return (true, format!("{}:{}", b.label().to_lowercase(), b.key_display(service, preset)));
+                return (
+                    true,
+                    format!(
+                        "{}:{}",
+                        b.label().to_lowercase(),
+                        b.key_display(service, preset)
+                    ),
+                );
             }
         }
         err(&format!(
@@ -98,8 +106,13 @@ pub fn load_service_for_pick(
     if preset_local.exists() {
         if let Ok(content) = std::fs::read_to_string(&preset_local) {
             crate::backup::backup_env_before_write(
-                &label, dest, "load-service-for-pick",
-                &format!("loading from local cache {}", settings.project.preset_local_rel(service, preset)),
+                &label,
+                dest,
+                "load-service-for-pick",
+                &format!(
+                    "loading from local cache {}",
+                    settings.project.preset_local_rel(service, preset)
+                ),
             );
             if write_file(dest, &content).is_ok() {
                 return (true, format!("{} local", preset));
@@ -111,8 +124,13 @@ pub fn load_service_for_pick(
     if fallback.exists() {
         if let Ok(content) = std::fs::read_to_string(&fallback) {
             crate::backup::backup_env_before_write(
-                &label, dest, "load-service-for-pick",
-                &format!("loading from generic local fallback {}", settings.project.local_fallback_rel(service)),
+                &label,
+                dest,
+                "load-service-for-pick",
+                &format!(
+                    "loading from generic local fallback {}",
+                    settings.project.local_fallback_rel(service)
+                ),
             );
             if write_file(dest, &content).is_ok() {
                 return (true, "local fallback (DB may not match preset)".to_string());
@@ -124,8 +142,13 @@ pub fn load_service_for_pick(
     if profile.exists() {
         if let Ok(content) = std::fs::read_to_string(&profile) {
             crate::backup::backup_env_before_write(
-                &label, dest, "load-service-for-pick",
-                &format!("loading from git-tracked profile env/{}/{}.env", service, preset),
+                &label,
+                dest,
+                "load-service-for-pick",
+                &format!(
+                    "loading from git-tracked profile env/{}/{}.env",
+                    service, preset
+                ),
             );
             if write_file(dest, &content).is_ok() {
                 return (true, "profile (no secrets)".to_string());
@@ -186,7 +209,11 @@ pub fn resolve_workspace_preset(
     if ok {
         let _ = set_workspace_preset(workspace, &preset);
     } else {
-        anyhow::bail!("no env source found for {}/{} — cannot continue", service, preset);
+        anyhow::bail!(
+            "no env source found for {}/{} — cannot continue",
+            service,
+            preset
+        );
     }
     Ok(preset)
 }
@@ -221,8 +248,7 @@ pub fn resolve_backend_preset(
 
     for pane in window_backend {
         let dest = settings.project.service_env_path(&pane.repo, None);
-        let (ok, status) =
-            load_service_for_pick(&pane.repo, &preset, &dest, backend, settings);
+        let (ok, status) = load_service_for_pick(&pane.repo, &preset, &dest, backend, settings);
         err(&format!(
             "  loaded {} [{}] → {:?}  ({})",
             pane.repo, preset, dest, status
@@ -230,7 +256,11 @@ pub fn resolve_backend_preset(
         if ok {
             let _ = set_service_preset(&pane.repo, &preset);
         } else {
-            anyhow::bail!("no env source found for {}/{} — cannot continue", pane.repo, preset);
+            anyhow::bail!(
+                "no env source found for {}/{} — cannot continue",
+                pane.repo,
+                preset
+            );
         }
     }
 

@@ -7,7 +7,6 @@
 ///   Item "my-ui"   → section "test" → field "env" = "..."
 ///                   → section "uat"  → field "env" = "..."
 ///   Item "my-api"  → section "test" → field "env" = "..."
-
 use super::{run_cmd, write_tempfile_json, SecretBackend};
 
 pub struct OpBackend {
@@ -27,7 +26,10 @@ impl OpBackend {
         }
     }
 
-    pub fn with_descriptions(mut self, descriptions: std::collections::HashMap<String, String>) -> Self {
+    pub fn with_descriptions(
+        mut self,
+        descriptions: std::collections::HashMap<String, String>,
+    ) -> Self {
         self.descriptions = descriptions;
         self
     }
@@ -88,9 +90,14 @@ impl OpBackend {
     #[allow(dead_code)]
     fn item_exists(&self, title: &str) -> bool {
         let (ok, _, _) = self.run(&[
-            "op", "item", "get", title,
-            "--vault", &self.vault,
-            "--fields", "title",
+            "op",
+            "item",
+            "get",
+            title,
+            "--vault",
+            &self.vault,
+            "--fields",
+            "title",
         ]);
         ok
     }
@@ -101,9 +108,14 @@ impl OpBackend {
 
     fn get_item_by_title(&self, title: &str) -> Option<serde_json::Value> {
         let (ok, stdout, _) = self.run(&[
-            "op", "item", "get", title,
-            "--vault", &self.vault,
-            "--format", "json",
+            "op",
+            "item",
+            "get",
+            title,
+            "--vault",
+            &self.vault,
+            "--format",
+            "json",
         ]);
         if !ok {
             return None;
@@ -121,7 +133,10 @@ impl OpBackend {
                 .and_then(|v| v.as_str());
             let field_label = field.get("label").and_then(|v| v.as_str());
             if section_label == Some(preset) && field_label == Some("env") {
-                return field.get("value").and_then(|v| v.as_str()).map(|s| s.to_string());
+                return field
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
             }
         }
         None
@@ -160,7 +175,10 @@ impl OpBackend {
 
         // Find or create the env field in that section.
         let existing_idx = fields.iter().position(|f| {
-            let sl = f.get("section").and_then(|s| s.get("label")).and_then(|v| v.as_str());
+            let sl = f
+                .get("section")
+                .and_then(|s| s.get("label"))
+                .and_then(|v| v.as_str());
             let fl = f.get("label").and_then(|v| v.as_str());
             sl == Some(preset) && fl == Some("env")
         });
@@ -215,8 +233,14 @@ impl OpBackend {
             .unwrap_or_default()
             .into_iter()
             .filter(|f| {
-                let sl = f.get("section").and_then(|s| s.get("label")).and_then(|v| v.as_str());
-                let si = f.get("section").and_then(|s| s.get("id")).and_then(|v| v.as_str());
+                let sl = f
+                    .get("section")
+                    .and_then(|s| s.get("label"))
+                    .and_then(|v| v.as_str());
+                let si = f
+                    .get("section")
+                    .and_then(|s| s.get("id"))
+                    .and_then(|v| v.as_str());
                 let by_label = sl != Some(preset);
                 let by_id = section_id_to_remove
                     .as_deref()
@@ -238,14 +262,26 @@ impl OpBackend {
             Some(o) => o.clone(),
             None => return item.clone(),
         };
-        for key in &["id", "vault", "version", "last_edited_by", "created_at", "updated_at"] {
+        for key in &[
+            "id",
+            "vault",
+            "version",
+            "last_edited_by",
+            "created_at",
+            "updated_at",
+        ] {
             obj.remove(*key);
         }
         serde_json::Value::Object(obj)
     }
 
     /// Build a fresh item JSON for a brand-new service with a single preset.
-    fn create_item_json(title: &str, preset: &str, content: &str, description: &str) -> serde_json::Value {
+    fn create_item_json(
+        title: &str,
+        preset: &str,
+        content: &str,
+        description: &str,
+    ) -> serde_json::Value {
         let section_id = format!("s_{}", preset);
         let field_id = format!("f_{}_env", preset);
         let mut item = serde_json::json!({
@@ -289,9 +325,13 @@ impl OpBackend {
             .unwrap_or_default()
             .to_string();
         let mut args = vec![
-            "op", "item", "create",
-            "--template", &tmp_str,
-            "--vault", &self.vault,
+            "op",
+            "item",
+            "create",
+            "--template",
+            &tmp_str,
+            "--vault",
+            &self.vault,
         ];
         if !title.is_empty() {
             args.push("--title");
@@ -330,7 +370,11 @@ impl SecretBackend for OpBackend {
 
     fn push(&self, service: &str, preset: &str, content: &str) -> bool {
         let title = self.item_title(service);
-        let description = self.descriptions.get(service).map(|s| s.as_str()).unwrap_or("");
+        let description = self
+            .descriptions
+            .get(service)
+            .map(|s| s.as_str())
+            .unwrap_or("");
         match self.get_item_json(service) {
             None => {
                 let template = Self::create_item_json(&title, preset, content, description);
@@ -371,8 +415,7 @@ impl SecretBackend for OpBackend {
             .count();
 
         if remaining == 0 {
-            let (ok, _, err) =
-                self.run(&["op", "item", "delete", &title, "--vault", &self.vault]);
+            let (ok, _, err) = self.run(&["op", "item", "delete", &title, "--vault", &self.vault]);
             if !ok {
                 eprintln!("  op error: {}", err.trim());
             }
@@ -382,8 +425,7 @@ impl SecretBackend for OpBackend {
         // Other presets remain: delete item and recreate without this section.
         let updated = Self::remove_preset_from_json(&item, preset);
         let template = Self::clean_for_template(&updated);
-        let (del_ok, _, err) =
-            self.run(&["op", "item", "delete", &title, "--vault", &self.vault]);
+        let (del_ok, _, err) = self.run(&["op", "item", "delete", &title, "--vault", &self.vault]);
         if !del_ok {
             eprintln!("  op error deleting item: {}", err.trim());
             return false;
@@ -393,10 +435,15 @@ impl SecretBackend for OpBackend {
 
     fn list(&self) -> Vec<(String, String)> {
         let (ok, stdout, _) = self.run(&[
-            "op", "item", "list",
-            "--vault", &self.vault,
-            "--categories", "Secure Note",
-            "--format", "json",
+            "op",
+            "item",
+            "list",
+            "--vault",
+            &self.vault,
+            "--categories",
+            "Secure Note",
+            "--format",
+            "json",
         ]);
         if !ok {
             return vec![];
@@ -496,7 +543,10 @@ mod tests {
     fn extract_preset_handles_multiline_content() {
         let content = "API_URL=https://example.com\nDB_PASS=s3cr3t\nFOO=bar\n";
         let item = make_item(&[("test", content)]);
-        assert_eq!(OpBackend::extract_preset(&item, "test"), Some(content.to_string()));
+        assert_eq!(
+            OpBackend::extract_preset(&item, "test"),
+            Some(content.to_string())
+        );
     }
 
     #[test]
@@ -506,9 +556,15 @@ mod tests {
 
         let sections = updated["sections"].as_array().unwrap();
         assert_eq!(sections.len(), 2);
-        assert_eq!(OpBackend::extract_preset(&updated, "uat"), Some("FOO=2\n".to_string()));
+        assert_eq!(
+            OpBackend::extract_preset(&updated, "uat"),
+            Some("FOO=2\n".to_string())
+        );
         // Existing preset untouched
-        assert_eq!(OpBackend::extract_preset(&updated, "test"), Some("FOO=1\n".to_string()));
+        assert_eq!(
+            OpBackend::extract_preset(&updated, "test"),
+            Some("FOO=1\n".to_string())
+        );
     }
 
     #[test]
@@ -533,7 +589,10 @@ mod tests {
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0]["label"], "uat");
         assert_eq!(OpBackend::extract_preset(&updated, "test"), None);
-        assert_eq!(OpBackend::extract_preset(&updated, "uat"), Some("U=2\n".to_string()));
+        assert_eq!(
+            OpBackend::extract_preset(&updated, "uat"),
+            Some("U=2\n".to_string())
+        );
     }
 
     #[test]

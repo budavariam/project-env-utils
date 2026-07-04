@@ -25,7 +25,11 @@ fn ask(prompt: &str, default: &str) -> String {
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let v = l.trim().to_string();
-            if v.is_empty() { default.to_string() } else { v }
+            if v.is_empty() {
+                default.to_string()
+            } else {
+                v
+            }
         }
         _ => default.to_string(),
     }
@@ -38,9 +42,18 @@ fn ask_yn(prompt: &str, default_yes: bool) -> bool {
     write!(out, "  {} [{}]  ", prompt, hint).ok();
     out.flush().ok();
     let stdin = io::stdin();
-    let answer = stdin.lock().lines().next().and_then(|l| l.ok())
-        .map(|l| l.trim().to_lowercase()).unwrap_or_default();
-    if answer.is_empty() { default_yes } else { answer.starts_with('y') }
+    let answer = stdin
+        .lock()
+        .lines()
+        .next()
+        .and_then(|l| l.ok())
+        .map(|l| l.trim().to_lowercase())
+        .unwrap_or_default();
+    if answer.is_empty() {
+        default_yes
+    } else {
+        answer.starts_with('y')
+    }
 }
 
 fn print_step(n: usize, title: &str) {
@@ -103,10 +116,13 @@ pub fn run() -> Result<()> {
     loop {
         println!();
         let raw = ask(&format!("Service {} name (empty to stop)", idx), "");
-        if raw.is_empty() { break; }
+        if raw.is_empty() {
+            break;
+        }
 
         // Split on first whitespace — rest is description
-        let (name, rest) = raw.split_once(char::is_whitespace)
+        let (name, rest) = raw
+            .split_once(char::is_whitespace)
             .map(|(n, r)| (n.trim().to_string(), r.trim().to_string()))
             .unwrap_or((raw.trim().to_string(), String::new()));
 
@@ -132,7 +148,10 @@ pub fn run() -> Result<()> {
         }
         if !env_vars.is_empty() {
             svc["env_vars"] = serde_json::Value::Array(
-                env_vars.into_iter().map(serde_json::Value::String).collect(),
+                env_vars
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
             );
         }
         services.push(svc);
@@ -149,7 +168,7 @@ pub fn run() -> Result<()> {
     let ui_repo_raw = ask("UI repo name (empty to skip)", "");
     let dev_ui = if !ui_repo_raw.is_empty() {
         let pane_dev = ask("  Dev command", "npm install && npm run dev");
-        let pane_sb  = ask("  Storybook command", "npm run storybook");
+        let pane_sb = ask("  Storybook command", "npm run storybook");
         Some(serde_json::json!({
             "repo": ui_repo_raw,
             "pane_dev_cmd": pane_dev,
@@ -169,8 +188,13 @@ pub fn run() -> Result<()> {
         let mut pidx = 1;
         loop {
             let repo = ask(&format!("  Repo {} (empty to stop)", pidx), "");
-            if repo.is_empty() { break; }
-            let cmd = ask(&format!("  Start command for '{}'", repo), "npm install && npm run dev");
+            if repo.is_empty() {
+                break;
+            }
+            let cmd = ask(
+                &format!("  Start command for '{}'", repo),
+                "npm install && npm run dev",
+            );
             panes.push(serde_json::json!({ "repo": repo, "cmd": cmd }));
             pidx += 1;
         }
@@ -204,11 +228,14 @@ pub fn run() -> Result<()> {
     // ── Preview + confirm ────────────────────────────────────────────────────
     println!();
     println!("  ── Preview ──────────────────────────────────────────");
-    println!("{}", serde_json::to_string_pretty(&config)?
-        .lines()
-        .map(|l| format!("  {}", l))
-        .collect::<Vec<_>>()
-        .join("\n"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&config)?
+            .lines()
+            .map(|l| format!("  {}", l))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
     println!();
     if !ask_yn(&format!("Write to {:?}?", settings_path), true) {
         println!("  Aborted.");

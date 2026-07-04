@@ -6,7 +6,7 @@ use anyhow::Result;
 use crate::backend::onepassword::OpBackend;
 use crate::backend::SecretBackend;
 use crate::cmd::sync;
-use crate::config::{Settings};
+use crate::config::Settings;
 
 fn require_op(backend: &OpBackend) {
     if !backend.available() {
@@ -21,7 +21,9 @@ fn require_op(backend: &OpBackend) {
 
 fn make_backend(settings: &Settings) -> OpBackend {
     let descriptions: std::collections::HashMap<String, String> = settings
-        .project.services.iter()
+        .project
+        .services
+        .iter()
         .filter(|s| !s.description.is_empty())
         .map(|s| (s.name.clone(), s.description.clone()))
         .collect();
@@ -38,7 +40,11 @@ fn ask(prompt: &str, default: &str) -> String {
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let v = l.trim().to_string();
-            if v.is_empty() { default.to_string() } else { v }
+            if v.is_empty() {
+                default.to_string()
+            } else {
+                v
+            }
         }
         _ => default.to_string(),
     }
@@ -109,7 +115,12 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
         .collect();
     existing_presets.sort();
 
-    let all_services: Vec<String> = settings.project.services.iter().map(|s| s.name.clone()).collect();
+    let all_services: Vec<String> = settings
+        .project
+        .services
+        .iter()
+        .map(|s| s.name.clone())
+        .collect();
 
     println!();
     println!("  ╔══════════════════════════════════════════════════════╗");
@@ -126,7 +137,13 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
     // ── Choose source preset ────────────────────────────────────────────────
     println!("  Existing presets:  {}", existing_presets.join("  |  "));
     println!();
-    let src = ask("Copy FROM preset", existing_presets.first().map(|s| s.as_str()).unwrap_or("test"));
+    let src = ask(
+        "Copy FROM preset",
+        existing_presets
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("test"),
+    );
 
     // ── Choose new preset name ──────────────────────────────────────────────
     println!();
@@ -145,12 +162,21 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
     let services: Vec<String> = if svc_input.trim().eq_ignore_ascii_case("all") {
         all_services.clone()
     } else {
-        svc_input.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        svc_input
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     };
 
     // ── Summary ─────────────────────────────────────────────────────────────
     println!();
-    println!("  Will copy:  {} → {}  for {} service(s):", src, dest, services.len());
+    println!(
+        "  Will copy:  {} → {}  for {} service(s):",
+        src,
+        dest,
+        services.len()
+    );
     for svc in &services {
         println!("    {}", svc);
     }
@@ -162,8 +188,13 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
         out.flush().ok();
     }
     let stdin = io::stdin();
-    let answer = stdin.lock().lines().next().and_then(|l| l.ok())
-        .map(|l| l.trim().to_lowercase()).unwrap_or_default();
+    let answer = stdin
+        .lock()
+        .lines()
+        .next()
+        .and_then(|l| l.ok())
+        .map(|l| l.trim().to_lowercase())
+        .unwrap_or_default();
     if answer == "n" || answer == "no" {
         println!("  Aborted.");
         return Ok(());
@@ -187,12 +218,20 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
             // Also write to local .env so it's immediately usable
             let dest_path = settings.project.service_env_path(svc, None);
             crate::backup::backup_env_before_write(
-                &format!("{}/{}", svc, dest), &dest_path, "op-new-preset",
+                &format!("{}/{}", svc, dest),
+                &dest_path,
+                "op-new-preset",
                 &format!("new-preset: {} copied from {} → {}", svc, src, dest),
             );
             crate::backup::log_backend_push(
-                &format!("{}/{}", svc, dest), "op-new-preset",
-                &format!("pushed new preset {} to {} (copied from {})", dest, b.label(), src),
+                &format!("{}/{}", svc, dest),
+                "op-new-preset",
+                &format!(
+                    "pushed new preset {} to {} (copied from {})",
+                    dest,
+                    b.label(),
+                    src
+                ),
             );
             let _ = crate::env_file::write_file(&dest_path, &content);
             println!("  ✓  {}  [{}] copied from [{}]", svc, dest, src);
@@ -207,7 +246,10 @@ pub fn run_new_preset(settings: &Settings) -> Result<()> {
     println!("  {}/{} services copied.", ok_count, services.len());
     if ok_count > 0 {
         println!();
-        println!("  New preset '{}' is now active. Edit .env files as needed,", dest);
+        println!(
+            "  New preset '{}' is now active. Edit .env files as needed,",
+            dest
+        );
         println!("  then push changes back with:");
         println!("    penv op push {}", dest);
     }

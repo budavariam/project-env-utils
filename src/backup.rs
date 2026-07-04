@@ -129,7 +129,16 @@ fn unix_to_ymdhms(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     let month_days: [u64; 12] = [
         31,
         if is_leap(year) { 29 } else { 28 },
-        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 1u64;
     for &md in &month_days {
@@ -143,5 +152,5 @@ fn unix_to_ymdhms(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
 }
 
 fn is_leap(y: u64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }

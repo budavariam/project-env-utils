@@ -5,8 +5,8 @@ use anyhow::{bail, Result};
 
 use crate::cmd::pick_preset::resolve_workspace_preset;
 use crate::cmd::worktree::{
-    branch_to_safe, ensure_worktree, pick_branch_fzf, pick_worktree_wtf, write_close_session_script,
-    write_teardown_script,
+    branch_to_safe, ensure_worktree, pick_branch_fzf, pick_worktree_wtf,
+    write_close_session_script, write_teardown_script,
 };
 use crate::config::{repo_parent, repo_root, Settings};
 use crate::tmux::{active_mux, setup_linked_window};
@@ -60,7 +60,9 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
         let session = format!("{}_{}", repo, branch_to_safe(&branch));
         eprintln!(
             "Workspace: {} (branch: {}, session: {})",
-            wt.display(), branch, session
+            wt.display(),
+            branch,
+            session
         );
         (wt, session, true)
     } else {
@@ -81,7 +83,9 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     crate::cmd::morning_check::startup_sync_check(
         &[(repo.as_str(), Some(ui_dir_s.as_str()))],
-        &preset, bref, settings,
+        &preset,
+        bref,
+        settings,
     );
     println!();
 
@@ -100,18 +104,21 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     mux.new_session(&session, "ui", &ui_dir_s)?;
     let first = mux.first_pane_id(&session, 0)?;
     let grid = mux.build_pane_grid(&first, 2, 2, &ui_dir_s)?;
-    let p_ui    = &grid[0][0];
+    let p_ui = &grid[0][0];
     let p_shell = &grid[0][1];
-    let p_sb    = &grid[1][0];
+    let p_sb = &grid[1][0];
     // grid[1][1] is an idle shell
 
     // ── Pane commands ─────────────────────────────────────────────────────────
 
     let dev_cmd = &settings.project.dev_ui.pane_dev_cmd;
-    let sb_cmd  = &settings.project.dev_ui.pane_sb_cmd;
+    let sb_cmd = &settings.project.dev_ui.pane_sb_cmd;
 
-    mux.send_keys(p_ui,   &format!("cd '{}' && {}", ui_dir_s, dev_cmd))?;
-    mux.send_keys(p_sb,   &format!("cd '{}' && sleep 10 && {}", ui_dir_s, sb_cmd))?;
+    mux.send_keys(p_ui, &format!("cd '{}' && {}", ui_dir_s, dev_cmd))?;
+    mux.send_keys(
+        p_sb,
+        &format!("cd '{}' && sleep 10 && {}", ui_dir_s, sb_cmd),
+    )?;
 
     // Shell pane — helper script
     let penv = std::env::current_exe()
@@ -130,10 +137,21 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             penv, preset, ui_dir_s,
         );
         write_teardown_script(
-            &helper_path, &session, &[(&ui_dir, &root.join(repo))],
-            &penv, &preset, &[repo.as_str()], &show_info_fn_cmd,
+            &helper_path,
+            &session,
+            &[(&ui_dir, &root.join(repo))],
+            &penv,
+            &preset,
+            &[repo.as_str()],
+            &show_info_fn_cmd,
         )?;
-        mux.send_keys(p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
+        mux.send_keys(
+            p_shell,
+            &format!(
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path
+            ),
+        )?;
     } else {
         let show_info_fn_cmd = format!(
             "'{}' show-info --preset '{}' --workspace '{}' --notes \
@@ -143,8 +161,21 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
              'inspect_env   — inspect env file ages' ||:",
             penv, preset, ui_dir_s,
         );
-        write_close_session_script(&helper_path, &session, &penv, &preset, &[repo.as_str()], &show_info_fn_cmd)?;
-        mux.send_keys(p_shell, &format!("{}; source '{}'; rm -f '{}'", show_info_fn_cmd, helper_path, helper_path))?;
+        write_close_session_script(
+            &helper_path,
+            &session,
+            &penv,
+            &preset,
+            &[repo.as_str()],
+            &show_info_fn_cmd,
+        )?;
+        mux.send_keys(
+            p_shell,
+            &format!(
+                "{}; source '{}'; rm -f '{}'",
+                show_info_fn_cmd, helper_path, helper_path
+            ),
+        )?;
     }
 
     // ── Claude window ─────────────────────────────────────────────────────────
@@ -170,7 +201,11 @@ mod tests {
         let root = PathBuf::from("/home/user/project");
         let branch = "feat/my-feature";
         let safe = branch_to_safe(branch);
-        let path = root.join("my-ui").join(".claude").join("worktrees").join(&safe);
+        let path = root
+            .join("my-ui")
+            .join(".claude")
+            .join("worktrees")
+            .join(&safe);
         assert_eq!(
             path,
             PathBuf::from("/home/user/project/my-ui/.claude/worktrees/feat_my-feature")
@@ -181,7 +216,15 @@ mod tests {
     fn non_worktree_helper_has_close_session_not_teardown() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("h.sh").to_string_lossy().into_owned();
-        write_close_session_script(&p, "my-ui", "/usr/local/bin/penv", "test", &["my-ui"], "penv show-info").unwrap();
+        write_close_session_script(
+            &p,
+            "my-ui",
+            "/usr/local/bin/penv",
+            "test",
+            &["my-ui"],
+            "penv show-info",
+        )
+        .unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("close_session"));
         assert!(s.contains("reload_env"));
@@ -195,7 +238,16 @@ mod tests {
         let p = dir.path().join("h.sh").to_string_lossy().into_owned();
         let wt = PathBuf::from("/repos/my-ui/.claude/worktrees/feat_foo");
         let repo = PathBuf::from("/repos/my-ui");
-        write_teardown_script(&p, "my-ui_feat_foo", &[(&wt, &repo)], "/usr/local/bin/penv", "test", &["my-ui"], "penv show-info").unwrap();
+        write_teardown_script(
+            &p,
+            "my-ui_feat_foo",
+            &[(&wt, &repo)],
+            "/usr/local/bin/penv",
+            "test",
+            &["my-ui"],
+            "penv show-info",
+        )
+        .unwrap();
         let s = std::fs::read_to_string(&p).unwrap();
         assert!(s.contains("teardown"));
         assert!(s.contains("close_session"));

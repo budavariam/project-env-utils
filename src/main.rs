@@ -136,7 +136,6 @@ enum Command {
     },
 }
 
-
 #[derive(Subcommand)]
 enum OpSub {
     Push {
@@ -155,8 +154,13 @@ enum OpSub {
         #[arg(long)]
         dry_run: bool,
     },
-    Diff { preset: String, service: Option<String> },
-    List { service: Option<String> },
+    Diff {
+        preset: String,
+        service: Option<String>,
+    },
+    List {
+        service: Option<String>,
+    },
     /// Verify (and optionally create) the 1Password vault
     InitVault,
     /// Interactive: copy an existing preset to a new name
@@ -182,7 +186,11 @@ fn main() {
             cmd::load_env::run(preset, service.as_deref(), &settings)
         }
 
-        Command::PickPreset { workspace, backend: use_backend, preset } => {
+        Command::PickPreset {
+            workspace,
+            backend: use_backend,
+            preset,
+        } => {
             use cmd::pick_preset;
             let backend_box = crate::backend::active_backend(&settings);
             let bref = backend_box.as_deref();
@@ -196,24 +204,36 @@ fn main() {
             }
         }
 
-        Command::ShowInfo { preset, workspace, services, message, notes } => {
-            cmd::show_info::run(
-                preset,
-                workspace.as_deref(),
-                services.as_deref(),
-                message.as_deref(),
-                notes.as_deref(),
-                &settings,
-            )
-        }
+        Command::ShowInfo {
+            preset,
+            workspace,
+            services,
+            message,
+            notes,
+        } => cmd::show_info::run(
+            preset,
+            workspace.as_deref(),
+            services.as_deref(),
+            message.as_deref(),
+            notes.as_deref(),
+            &settings,
+        ),
 
         Command::Op { sub } => match sub {
-            OpSub::Push { presets, service, dry_run } => {
-                presets.iter().try_fold((), |_, p| cmd::op_sync::run_push(p, service.as_deref(), &settings, *dry_run))
-            }
-            OpSub::Pull { presets, service, dry_run } => {
-                presets.iter().try_fold((), |_, p| cmd::op_sync::run_pull(p, service.as_deref(), &settings, *dry_run))
-            }
+            OpSub::Push {
+                presets,
+                service,
+                dry_run,
+            } => presets.iter().try_fold((), |_, p| {
+                cmd::op_sync::run_push(p, service.as_deref(), &settings, *dry_run)
+            }),
+            OpSub::Pull {
+                presets,
+                service,
+                dry_run,
+            } => presets.iter().try_fold((), |_, p| {
+                cmd::op_sync::run_pull(p, service.as_deref(), &settings, *dry_run)
+            }),
             OpSub::Diff { preset, service } => {
                 cmd::op_sync::run_diff(preset, service.as_deref(), &settings)
             }
@@ -230,7 +250,13 @@ fn main() {
 
         Command::Export => cmd::export::run(&settings),
 
-        Command::DevUi { preset, select, resume, resume_branch, attach } => cmd::dev_ui::run(
+        Command::DevUi {
+            preset,
+            select,
+            resume,
+            resume_branch,
+            attach,
+        } => cmd::dev_ui::run(
             &cmd::dev_ui::DevUiArgs {
                 preset: preset.clone(),
                 select: *select,
@@ -241,7 +267,13 @@ fn main() {
             &settings,
         ),
 
-        Command::DevBackend { preset, select, resume, resume_branch, attach } => cmd::dev_backend::run(
+        Command::DevBackend {
+            preset,
+            select,
+            resume,
+            resume_branch,
+            attach,
+        } => cmd::dev_backend::run(
             &cmd::dev_backend::DevBackendArgs {
                 preset: preset.clone(),
                 select: *select,
@@ -252,7 +284,11 @@ fn main() {
             &settings,
         ),
 
-        Command::DevSession { session, preset, attach } => cmd::dev_session::run(
+        Command::DevSession {
+            session,
+            preset,
+            attach,
+        } => cmd::dev_session::run(
             &cmd::dev_session::DevSessionArgs {
                 session_name: session.clone(),
                 preset: preset.clone(),
@@ -268,9 +304,9 @@ fn main() {
                 .as_deref()
                 .map(|s| s.to_string())
                 .or_else(|| {
-                    service.as_deref().and_then(|svc| {
-                        crate::state::State::load().services.get(svc).cloned()
-                    })
+                    service
+                        .as_deref()
+                        .and_then(|svc| crate::state::State::load().services.get(svc).cloned())
                 })
                 .unwrap_or_else(|| "dev".to_string());
             cmd::env_age::run(service.as_deref(), &active_preset, bref, &settings)

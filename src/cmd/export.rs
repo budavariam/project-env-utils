@@ -8,9 +8,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-
-use crate::config::{available_presets, repo_parent, Settings};
 use crate::cmd::pick_preset::load_service_for_pick;
+use crate::config::{available_presets, repo_parent, Settings};
 use crate::env_file::write_file;
 use crate::state::{get_service_preset, set_service_preset};
 
@@ -25,7 +24,11 @@ fn ask(prompt: &str, default: &str) -> String {
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let v = l.trim().to_string();
-            if v.is_empty() { default.to_string() } else { v }
+            if v.is_empty() {
+                default.to_string()
+            } else {
+                v
+            }
         }
         _ => default.to_string(),
     }
@@ -45,7 +48,11 @@ fn ask_yn(prompt: &str, default_yes: bool) -> bool {
         .and_then(|l| l.ok())
         .map(|l| l.trim().to_lowercase())
         .unwrap_or_default();
-    if answer.is_empty() { default_yes } else { answer.starts_with('y') }
+    if answer.is_empty() {
+        default_yes
+    } else {
+        answer.starts_with('y')
+    }
 }
 
 fn print_divider() {
@@ -151,10 +158,7 @@ pub fn run(settings: &Settings) -> Result<()> {
     // ── Destination folder ─────────────────────────────────────────────────
     print_divider();
     println!();
-    let default_dest = repo_parent()
-        .join("local")
-        .to_string_lossy()
-        .into_owned();
+    let default_dest = repo_parent().join("local").to_string_lossy().into_owned();
     println!("  Where should the .env files be written?");
     println!("  (Each file will be named <service>.<preset>.env)");
     println!();
@@ -165,7 +169,8 @@ pub fn run(settings: &Settings) -> Result<()> {
     println!();
     let do_zip = ask_yn("Zip the exported files?", false);
     let zip_path = if do_zip {
-        let default_zip = dest_dir.join("env-export.zip")
+        let default_zip = dest_dir
+            .join("env-export.zip")
             .to_string_lossy()
             .into_owned();
         println!();
@@ -181,8 +186,14 @@ pub fn run(settings: &Settings) -> Result<()> {
     println!("  About to export:");
     println!();
     for (svc, preset) in &chosen {
-        println!("    {}  [{}]  →  {}/{}.{}.env", svc, preset,
-            dest_dir.display(), svc, preset);
+        println!(
+            "    {}  [{}]  →  {}/{}.{}.env",
+            svc,
+            preset,
+            dest_dir.display(),
+            svc,
+            preset
+        );
     }
     if let Some(ref zp) = zip_path {
         println!();
@@ -220,8 +231,10 @@ pub fn run(settings: &Settings) -> Result<()> {
                     let _ = std::fs::remove_file(&tmp_path);
                 }
             }
-            println!("  ✓  {}  [{}]  →  {}.{}.env  ({})",
-                service, preset, service, preset, status);
+            println!(
+                "  ✓  {}  [{}]  →  {}.{}.env  ({})",
+                service, preset, service, preset, status
+            );
             let _ = set_service_preset(service, preset);
             written_paths.push(dest_file);
             ok_count += 1;

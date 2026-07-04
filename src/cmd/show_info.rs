@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::config::{Settings};
+use crate::config::Settings;
 use crate::env_file::parse_env;
 
 // ── Box dimensions ─────────────────────────────────────────────────────────────
@@ -211,11 +211,16 @@ mod tests {
     #[test]
     fn word_wrap_deploy_message_fits_box() {
         let content_width = BOX_WIDTH - 4; // INNER - 2
-        let msg = "To deploy, run: git subtree pull --prefix  project feat/multi-tenant --squash";
+        let msg =
+            "To deploy, run: git subtree pull --prefix  project feat/multi-tenant --squash";
         let lines = word_wrap(msg, content_width);
         assert!(lines.len() > 1, "long message should wrap");
         for line in &lines {
-            assert!(line.chars().count() <= content_width, "wrapped line too long: {:?}", line);
+            assert!(
+                line.chars().count() <= content_width,
+                "wrapped line too long: {:?}",
+                line
+            );
         }
         let rejoined = lines.join(" ");
         assert!(rejoined.contains("subtree"));
@@ -284,7 +289,9 @@ mod tests {
         assert!(rows[0].is_none()); // divider
         assert!(rows[1].as_ref().unwrap().contains("my-service"));
         let content: Vec<_> = rows[2..].iter().filter_map(|r| r.as_ref()).collect();
-        assert!(content.iter().any(|r| r.contains("NODE_ENV") && r.contains("test")));
+        assert!(content
+            .iter()
+            .any(|r| r.contains("NODE_ENV") && r.contains("test")));
         assert!(content
             .iter()
             .any(|r| r.contains("POSTGRES_HOST") && r.contains("localhost")));

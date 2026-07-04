@@ -1,6 +1,6 @@
 //! Shared sync logic: diff, push, pull, list — used by op_sync.
 use crate::backend::SecretBackend;
-use crate::config::{Settings};
+use crate::config::Settings;
 use crate::env_file::read_file;
 use similar::{ChangeTag, TextDiff};
 
@@ -61,7 +61,11 @@ pub fn cmd_push(
             }
         };
         if dry_run {
-            let action = if backend.exists(service, preset) { "UPDATE" } else { "CREATE" };
+            let action = if backend.exists(service, preset) {
+                "UPDATE"
+            } else {
+                "CREATE"
+            };
             println!(
                 "  [dry-run] {} {}  ({} bytes)",
                 action,
@@ -112,8 +116,14 @@ pub fn cmd_pull(
                         let _ = std::fs::create_dir_all(parent);
                     }
                     crate::backup::backup_env_before_write(
-                        service, &dest, "op-pull",
-                        &format!("op pull {} from {}", preset, backend.key_display(service, preset)),
+                        service,
+                        &dest,
+                        "op-pull",
+                        &format!(
+                            "op pull {} from {}",
+                            preset,
+                            backend.key_display(service, preset)
+                        ),
                     );
                     if std::fs::write(&dest, &content).is_ok() {
                         println!(
@@ -226,7 +236,10 @@ pub fn cmd_list(service_filter: Option<&str>, backend: &dyn SecretBackend, setti
     use std::collections::BTreeMap;
     let mut grouped: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (svc, preset) in &shown {
-        grouped.entry(svc.as_str()).or_default().push(preset.as_str());
+        grouped
+            .entry(svc.as_str())
+            .or_default()
+            .push(preset.as_str());
     }
     for (svc, mut presets) in grouped {
         presets.sort();
@@ -287,7 +300,10 @@ mod tests {
                     && !l.starts_with("---")
             })
             .collect();
-        assert!(change_lines.is_empty(), "identical files should have no change lines");
+        assert!(
+            change_lines.is_empty(),
+            "identical files should have no change lines"
+        );
     }
 
     #[test]
@@ -311,10 +327,10 @@ mod tests {
     impl RecordingBackend {
         fn with_entry(service: &str, preset: &str, content: &str) -> Arc<Self> {
             let b = Arc::new(Self::default());
-            b.store
-                .lock()
-                .unwrap()
-                .insert((service.to_string(), preset.to_string()), content.to_string());
+            b.store.lock().unwrap().insert(
+                (service.to_string(), preset.to_string()),
+                content.to_string(),
+            );
             b
         }
     }
@@ -344,10 +360,10 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((service.to_string(), preset.to_string()));
-            self.store
-                .lock()
-                .unwrap()
-                .insert((service.to_string(), preset.to_string()), content.to_string());
+            self.store.lock().unwrap().insert(
+                (service.to_string(), preset.to_string()),
+                content.to_string(),
+            );
             true
         }
         fn delete(&self, service: &str, preset: &str) -> bool {
@@ -370,7 +386,12 @@ mod tests {
             project: ProjectConfig {
                 services: services
                     .iter()
-                    .map(|s| ServiceConfig { name: s.to_string(), description: String::new(), env_vars: vec![], env_path: None })
+                    .map(|s| ServiceConfig {
+                        name: s.to_string(),
+                        description: String::new(),
+                        env_vars: vec![],
+                        env_path: None,
+                    })
                     .collect(),
                 ..Default::default()
             },
@@ -423,7 +444,10 @@ mod tests {
 
         std::env::remove_var("PENV_REPO_ROOT");
 
-        assert!(!svc_dir.join(".env").exists(), "dry-run must not write the file");
+        assert!(
+            !svc_dir.join(".env").exists(),
+            "dry-run must not write the file"
+        );
     }
 
     #[test]

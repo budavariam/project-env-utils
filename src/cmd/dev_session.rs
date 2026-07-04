@@ -116,7 +116,13 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
 
     for (tab_idx, tab) in session_cfg.tabs.iter().enumerate() {
         let n_rows = tab.panes.iter().map(|p| p.row + 1).max().unwrap_or(1);
-        let n_cols = tab.panes.iter().map(|p| p.col + 1).max().unwrap_or(1).min(2);
+        let n_cols = tab
+            .panes
+            .iter()
+            .map(|p| p.col + 1)
+            .max()
+            .unwrap_or(1)
+            .min(2);
 
         let tab_name = if tab.name.is_empty() {
             if tab_idx == 0 {
@@ -139,14 +145,14 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
 
         // Find the first grid position with no non-empty cmd → idle shell candidate.
         if helper_pane.is_none() {
-            'outer: for r in 0..n_rows {
-                for c in 0..n_cols {
+            'outer: for (r, row) in grid.iter().enumerate() {
+                for (c, pane_id) in row.iter().enumerate() {
                     let has_cmd = tab
                         .panes
                         .iter()
                         .any(|p| p.row == r && p.col == c && !p.cmd.is_empty());
                     if !has_cmd {
-                        helper_pane = Some(grid[r][c].clone());
+                        helper_pane = Some(pane_id.clone());
                         break 'outer;
                     }
                 }
@@ -184,13 +190,23 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         let message_arg = if session_cfg.message.is_empty() {
             String::new()
         } else {
-            format!(" --message '{}'", session_cfg.message.replace('\'', "'\\''"))
+            format!(
+                " --message '{}'",
+                session_cfg.message.replace('\'', "'\\''")
+            )
         };
         let show_info_fn_cmd = format!(
             "'{}' show-info --preset '{}' --services {}{} --notes 'reload_env    — reload .env from current preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
             penv, preset, services_arg, message_arg,
         );
-        write_close_session_script(&helper_path, session, &penv, &preset, &svc_refs, &show_info_fn_cmd)?;
+        write_close_session_script(
+            &helper_path,
+            session,
+            &penv,
+            &preset,
+            &svc_refs,
+            &show_info_fn_cmd,
+        )?;
         mux.send_keys(
             pane_id,
             &format!(
@@ -230,7 +246,13 @@ mod tests {
             panes: vec![pane("my-api", "npm run dev", 0, 0)],
         };
         let n_rows = tab.panes.iter().map(|p| p.row + 1).max().unwrap_or(1);
-        let n_cols = tab.panes.iter().map(|p| p.col + 1).max().unwrap_or(1).min(2);
+        let n_cols = tab
+            .panes
+            .iter()
+            .map(|p| p.col + 1)
+            .max()
+            .unwrap_or(1)
+            .min(2);
         assert_eq!((n_rows, n_cols), (1, 1));
     }
 
@@ -240,12 +262,18 @@ mod tests {
             name: "main".to_string(),
             panes: vec![
                 pane("my-api", "npm run dev", 0, 0),
-                pane("my-ui",  "npm run dev", 0, 1),
-                pane("my-ui",  "npm run sb",  1, 1),
+                pane("my-ui", "npm run dev", 0, 1),
+                pane("my-ui", "npm run sb", 1, 1),
             ],
         };
         let n_rows = tab.panes.iter().map(|p| p.row + 1).max().unwrap_or(1);
-        let n_cols = tab.panes.iter().map(|p| p.col + 1).max().unwrap_or(1).min(2);
+        let n_cols = tab
+            .panes
+            .iter()
+            .map(|p| p.col + 1)
+            .max()
+            .unwrap_or(1)
+            .min(2);
         assert_eq!((n_rows, n_cols), (2, 2));
     }
 
@@ -255,7 +283,13 @@ mod tests {
             name: "main".to_string(),
             panes: vec![pane("svc", "cmd", 5, 0)],
         };
-        let n_cols = tab.panes.iter().map(|p| p.col + 1).max().unwrap_or(1).min(2);
+        let n_cols = tab
+            .panes
+            .iter()
+            .map(|p| p.col + 1)
+            .max()
+            .unwrap_or(1)
+            .min(2);
         assert_eq!(n_cols, 2);
     }
 
@@ -266,17 +300,26 @@ mod tests {
             panes: vec![
                 pane("my-api", "npm run dev", 0, 0),
                 // (0,1) and (1,0) unconfigured → (0,1) wins (row=0 first)
-                pane("my-ui",  "npm run sb",  1, 1),
+                pane("my-ui", "npm run sb", 1, 1),
             ],
         };
         let n_rows = tab.panes.iter().map(|p| p.row + 1).max().unwrap_or(1);
-        let n_cols = tab.panes.iter().map(|p| p.col + 1).max().unwrap_or(1).min(2);
+        let n_cols = tab
+            .panes
+            .iter()
+            .map(|p| p.col + 1)
+            .max()
+            .unwrap_or(1)
+            .min(2);
         assert_eq!((n_rows, n_cols), (2, 2));
 
         let mut helper: Option<(usize, usize)> = None;
         'outer: for r in 0..n_rows {
             for c in 0..n_cols {
-                let has_cmd = tab.panes.iter().any(|p| p.row == r && p.col == c && !p.cmd.is_empty());
+                let has_cmd = tab
+                    .panes
+                    .iter()
+                    .any(|p| p.row == r && p.col == c && !p.cmd.is_empty());
                 if !has_cmd {
                     helper = Some((r, c));
                     break 'outer;
@@ -290,19 +333,28 @@ mod tests {
     fn helper_pane_none_when_all_panes_have_cmds() {
         let tab = TabConfig {
             name: "main".to_string(),
-            panes: vec![
-                pane("a", "cmd1", 0, 0),
-                pane("b", "cmd2", 1, 0),
-            ],
+            panes: vec![pane("a", "cmd1", 0, 0), pane("b", "cmd2", 1, 0)],
         };
         let n_rows = tab.panes.iter().map(|p| p.row + 1).max().unwrap_or(1);
-        let n_cols = tab.panes.iter().map(|p| p.col + 1).max().unwrap_or(1).min(2);
+        let n_cols = tab
+            .panes
+            .iter()
+            .map(|p| p.col + 1)
+            .max()
+            .unwrap_or(1)
+            .min(2);
 
         let mut helper: Option<(usize, usize)> = None;
         'outer: for r in 0..n_rows {
             for c in 0..n_cols {
-                let has_cmd = tab.panes.iter().any(|p| p.row == r && p.col == c && !p.cmd.is_empty());
-                if !has_cmd { helper = Some((r, c)); break 'outer; }
+                let has_cmd = tab
+                    .panes
+                    .iter()
+                    .any(|p| p.row == r && p.col == c && !p.cmd.is_empty());
+                if !has_cmd {
+                    helper = Some((r, c));
+                    break 'outer;
+                }
             }
         }
         assert_eq!(helper, None);

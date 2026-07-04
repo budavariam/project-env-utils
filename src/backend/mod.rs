@@ -101,14 +101,15 @@ pub fn active_backend(settings: &Settings) -> Option<Box<dyn SecretBackend>> {
     match &settings.secret_backend {
         SB::OnePassword => {
             let descriptions: std::collections::HashMap<String, String> = settings
-                .project.services.iter()
+                .project
+                .services
+                .iter()
                 .filter(|s| !s.description.is_empty())
                 .map(|s| (s.name.clone(), s.description.clone()))
                 .collect();
-            let b = onepassword::OpBackend::new(
-                &settings.op_vault,
-                &settings.project.op_item_prefix,
-            ).with_descriptions(descriptions);
+            let b =
+                onepassword::OpBackend::new(&settings.op_vault, &settings.project.op_item_prefix)
+                    .with_descriptions(descriptions);
             if b.available() {
                 Some(Box::new(b))
             } else {

@@ -38,7 +38,10 @@ fn format_utc(secs: u64) -> String {
     let mm = (tod % 3600) / 60;
     let ss = tod % 60;
     let (y, mo, d) = days_to_ymd(days);
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", y, mo, d, hh, mm, ss)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+        y, mo, d, hh, mm, ss
+    )
 }
 
 fn days_to_ymd(days: i64) -> (i64, u32, u32) {
@@ -123,7 +126,12 @@ pub fn run(
 ) -> Result<()> {
     let services: Vec<String> = match service {
         Some(s) => vec![s.to_string()],
-        None => settings.project.services.iter().map(|s| s.name.clone()).collect(),
+        None => settings
+            .project
+            .services
+            .iter()
+            .map(|s| s.name.clone())
+            .collect(),
     };
     for svc in &services {
         println!();
@@ -134,7 +142,12 @@ pub fn run(
 
 // ── Per-service logic ─────────────────────────────────────────────────────────
 
-fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, settings: &Settings) -> Result<()> {
+fn run_one(
+    service: &str,
+    preset: &str,
+    backend: Option<&dyn SecretBackend>,
+    settings: &Settings,
+) -> Result<()> {
     let svc_path = settings.project.service_env_path(service, None);
     let cache_path = settings.project.preset_local_path(service, preset);
 
@@ -183,14 +196,18 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
 
     println!("  ╾─ env-age: {} [{}]", service, preset);
     println!("  {}", divider);
-    println!("  {:<16}  {:<23}  {}", "Location", "Modified (UTC)", "Age");
+    println!("  {:<16}  {:<23}  Age", "Location", "Modified (UTC)");
     println!("  {}", divider);
 
     for (i, loc) in locs.iter().enumerate() {
         let ts = loc.ts_str();
         let age = match loc.secs {
             Some(s) => {
-                let ago = if now >= s { age_str(now - s) } else { "0s".to_string() };
+                let ago = if now >= s {
+                    age_str(now - s)
+                } else {
+                    "0s".to_string()
+                };
                 if Some(s) == newest_secs {
                     format!("★ {} ago", ago)
                 } else {
@@ -199,10 +216,7 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
             }
             None => "not found".to_string(),
         };
-        let note_str = loc
-            .note
-            .map(|n| format!("  ({})", n))
-            .unwrap_or_default();
+        let note_str = loc.note.map(|n| format!("  ({})", n)).unwrap_or_default();
         println!("  {:<16}  {:<23}  {}{}", loc.name, ts, age, note_str);
         println!("                     {}", loc.path_display);
         if i < locs.len() - 1 {
@@ -228,16 +242,15 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
                         } else {
                             (&b_loc.name, &a.name, sb - sa)
                         };
-                        println!(
-                            "  {:<16} is {} NEWER than  {}",
-                            newer,
-                            age_str(diff),
-                            older
-                        );
+                        println!("  {:<16} is {} NEWER than  {}", newer, age_str(diff), older);
                     }
                 }
                 _ => {
-                    let missing = if a.secs.is_none() { &a.name } else { &b_loc.name };
+                    let missing = if a.secs.is_none() {
+                        &a.name
+                    } else {
+                        &b_loc.name
+                    };
                     println!("  {} — not available, skipping comparison", missing);
                 }
             }
@@ -277,10 +290,7 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
         for to in 0..n {
             if from != to && locs[from].content.is_some() {
                 let key = key_n.to_string();
-                println!(
-                    "    [{}] {:<16} → {}",
-                    key, locs[from].name, locs[to].name
-                );
+                println!("    [{}] {:<16} → {}", key, locs[from].name, locs[to].name);
                 menu.push((key, String::new(), from, to));
                 key_n += 1;
             }
@@ -293,7 +303,11 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
     io::stdout().flush().ok();
     let raw = read_line().unwrap_or_default();
     let choice = raw.trim().to_lowercase();
-    let choice = if choice.is_empty() { "s".to_string() } else { choice };
+    let choice = if choice.is_empty() {
+        "s".to_string()
+    } else {
+        choice
+    };
 
     if choice == "s" {
         println!("  Skipped.");
@@ -308,7 +322,17 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
                 if ti == si {
                     continue;
                 }
-                apply_sync(service, preset, &locs, backend, &content, &src, ti, &svc_path, &cache_path)?;
+                apply_sync(
+                    service,
+                    preset,
+                    &locs,
+                    backend,
+                    &content,
+                    &src,
+                    ti,
+                    &svc_path,
+                    &cache_path,
+                )?;
             }
         }
         return Ok(());
@@ -317,7 +341,17 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
     if let Some((_, _, fi, ti)) = menu.iter().find(|(k, _, _, _)| *k == choice) {
         let content = locs[*fi].content.clone().unwrap();
         let src = locs[*fi].name.clone();
-        apply_sync(service, preset, &locs, backend, &content, &src, *ti, &svc_path, &cache_path)?;
+        apply_sync(
+            service,
+            preset,
+            &locs,
+            backend,
+            &content,
+            &src,
+            *ti,
+            &svc_path,
+            &cache_path,
+        )?;
     } else {
         println!("  Unknown choice '{}'. Skipped.", choice);
     }
@@ -327,6 +361,7 @@ fn run_one(service: &str, preset: &str, backend: Option<&dyn SecretBackend>, set
 
 // ── Apply a single sync action ─────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn apply_sync(
     service: &str,
     preset: &str,
@@ -412,7 +447,11 @@ mod tests {
         assert!(secs < 1_800_000_000, "should be well before 2026");
         // Round-trip: format then verify it looks like UTC
         let formatted = format_utc(secs);
-        assert!(formatted.starts_with("2024-01-15 14:23:45"), "formatted: {}", formatted);
+        assert!(
+            formatted.starts_with("2024-01-15 14:23:45"),
+            "formatted: {}",
+            formatted
+        );
     }
 
     #[test]
