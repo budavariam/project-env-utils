@@ -209,7 +209,7 @@ pub fn run(settings: &Settings) -> Result<()> {
     print_info("It also creates an index item listing all services.");
     wait_enter("Run init-vault?");
 
-    let updated = Settings::load(); // reload with new settings.local.json
+    let updated = Settings::load().unwrap_or_else(|_| settings.clone()); // reload with new settings.local.json
     let backend = OpBackend::new(&vault, &updated.project.op_item_prefix);
     let services: Vec<String> = updated.project.services.iter().map(|s| s.name.clone()).collect();
     backend.init_vault(&services)?;

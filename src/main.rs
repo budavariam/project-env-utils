@@ -52,6 +52,9 @@ enum Command {
         workspace: Option<String>,
         #[arg(long, num_args = 1..)]
         services: Option<Vec<String>>,
+        /// Custom message displayed at the bottom of the info box (word-wrapped).
+        #[arg(long)]
+        message: Option<String>,
         #[arg(long, num_args = 1..)]
         notes: Option<Vec<String>>,
     },
@@ -118,6 +121,14 @@ enum Command {
         #[arg(long)]
         attach: bool,
     },
+
+    /// Show env file ages across service repo, local cache, and backend
+    EnvAge {
+        #[arg(long)]
+        service: Option<String>,
+        #[arg(long)]
+        preset: Option<String>,
+    },
 }
 
 
@@ -149,7 +160,10 @@ enum OpSub {
 
 fn main() {
     let cli = Cli::parse();
-    let settings = config::Settings::load();
+    let settings = config::Settings::load().unwrap_or_else(|e| {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    });
 
     let result = match &cli.command {
         Command::LoadEnv { preset, service } => {
@@ -170,11 +184,12 @@ fn main() {
             }
         }
 
-        Command::ShowInfo { preset, workspace, services, notes } => {
+        Command::ShowInfo { preset, workspace, services, message, notes } => {
             cmd::show_info::run(
                 preset,
                 workspace.as_deref(),
                 services.as_deref(),
+                message.as_deref(),
                 notes.as_deref(),
                 &settings,
             )
@@ -233,6 +248,21 @@ fn main() {
             },
             &settings,
         ),
+
+        Command::EnvAge { service, preset } => {
+            let backend_box = crate::backend::active_backend(&settings);
+            let bref = backend_box.as_deref();
+            let active_preset = preset
+                .as_deref()
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    service.as_deref().and_then(|svc| {
+                        crate::state::State::load().services.get(svc).cloned()
+                    })
+                })
+                .unwrap_or_else(|| "dev".to_string());
+            cmd::env_age::run(service.as_deref(), &active_preset, bref, &settings)
+        }
     };
 
     if let Err(e) = result {

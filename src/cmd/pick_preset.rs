@@ -10,8 +10,8 @@ use anyhow::Result;
 
 use crate::backend::SecretBackend;
 use crate::config::{
-    available_presets, fallback_profile_path, local_env_path, local_fallback_path,
-    preset_local_path, Settings,
+    available_presets, fallback_profile_path,
+    Settings,
 };
 use crate::env_file::write_file;
 use crate::state::{get_service_preset, get_workspace_preset, set_service_preset, set_workspace_preset};
@@ -94,12 +94,12 @@ pub fn load_service_for_pick(
         ));
     }
 
-    let preset_local = preset_local_path(service, preset);
+    let preset_local = settings.project.preset_local_path(service, preset);
     if preset_local.exists() {
         if let Ok(content) = std::fs::read_to_string(&preset_local) {
             crate::backup::backup_env_before_write(
                 &label, dest, "load-service-for-pick",
-                &format!("loading from local cache {}.{}.env", service, preset),
+                &format!("loading from local cache {}", settings.project.preset_local_rel(service, preset)),
             );
             if write_file(dest, &content).is_ok() {
                 return (true, format!("{} local", preset));
@@ -107,12 +107,12 @@ pub fn load_service_for_pick(
         }
     }
 
-    let fallback = local_fallback_path(service);
+    let fallback = settings.project.local_fallback_path(service);
     if fallback.exists() {
         if let Ok(content) = std::fs::read_to_string(&fallback) {
             crate::backup::backup_env_before_write(
                 &label, dest, "load-service-for-pick",
-                &format!("loading from generic local fallback {}.env", service),
+                &format!("loading from generic local fallback {}", settings.project.local_fallback_rel(service)),
             );
             if write_file(dest, &content).is_ok() {
                 return (true, "local fallback (DB may not match preset)".to_string());
@@ -159,12 +159,12 @@ pub fn resolve_workspace_preset(
         prompt_preset(&label, last.as_deref(), &avail)
     };
 
-    let dest = local_env_path(service, Some(workspace));
+    let dest = settings.project.service_env_path(service, Some(workspace));
 
     // If the service .env exists and is newer than the penv cache, the user
     // likely edited it manually. Skip the silent pull so startup_sync_check
     // can show the diff and let them choose direction.
-    let cache = preset_local_path(service, &preset);
+    let cache = settings.project.preset_local_path(service, &preset);
     let dest_mtime = std::fs::metadata(&dest).and_then(|m| m.modified()).ok();
     let cache_mtime = std::fs::metadata(&cache).and_then(|m| m.modified()).ok();
     let user_edited = matches!((dest_mtime, cache_mtime), (Some(d), Some(c)) if d > c)
@@ -220,7 +220,7 @@ pub fn resolve_backend_preset(
     };
 
     for pane in window_backend {
-        let dest = local_env_path(&pane.repo, None);
+        let dest = settings.project.service_env_path(&pane.repo, None);
         let (ok, status) =
             load_service_for_pick(&pane.repo, &preset, &dest, backend, settings);
         err(&format!(

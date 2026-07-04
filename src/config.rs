@@ -16,6 +16,10 @@ pub struct ServiceConfig {
     pub description: String,
     #[serde(default)]
     pub env_vars: Vec<String>,
+    /// Path to .env file relative to the service repo root.
+    /// Defaults to ".env" when absent.
+    #[serde(default)]
+    pub env_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -59,6 +63,9 @@ pub struct SessionConfig {
     /// Skip preset resolution and env sync — for sessions that don't use secrets.
     #[serde(default)]
     pub no_preset: bool,
+    /// Custom message shown in the infobox (word-wrapped). Displayed above the notes section.
+    #[serde(default)]
+    pub message: String,
     #[serde(default)]
     pub tabs: Vec<TabConfig>,
 }
@@ -160,27 +167,45 @@ pub fn project_config_file() -> PathBuf {
 
 // ── File path helpers ──────────────────────────────────────────────────────────
 
-/// Destination .env path for a service (or workspace).
-/// Service repos live in repo_parent(); workspace paths are absolute.
-pub fn local_env_path(service: &str, workspace: Option<&str>) -> PathBuf {
-    if let Some(ws) = workspace {
-        PathBuf::from(ws).join(".env")
-    } else {
-        repo_parent().join(service).join(".env")
+impl ProjectConfig {
+    /// Resolve the `.env` path for a service, respecting the per-service `env_path` override
+    /// in settings.json. Falls back to `<repo_parent>/<service>/.env` when unset.
+    /// The `workspace` parameter takes precedence (used for UI worktrees).
+    pub fn service_env_path(&self, service: &str, workspace: Option<&str>) -> PathBuf {
+        if let Some(ws) = workspace {
+            return PathBuf::from(ws).join(".env");
+        }
+        let custom = self.services.iter()
+            .find(|s| s.name == service)
+            .and_then(|s| s.env_path.as_deref());
+        repo_parent().join(service).join(custom.unwrap_or(".env"))
     }
-}
 
-/// `local/<service>.<preset>.env` — preset-specific local fallback (gitignored).
-/// Lives inside the tool directory so all secrets stay in one place.
-pub fn preset_local_path(service: &str, preset: &str) -> PathBuf {
-    repo_root()
-        .join("local")
-        .join(format!("{}.{}.env", service, preset))
-}
+    /// `local/<project_name>/<service>.<preset>.env` — preset-specific local fallback (gitignored).
+    pub fn preset_local_path(&self, service: &str, preset: &str) -> std::path::PathBuf {
+        repo_root()
+            .join("local")
+            .join(&self.project_name)
+            .join(format!("{}.{}.env", service, preset))
+    }
 
-/// `local/<service>.env` — generic local fallback (gitignored, has secrets).
-pub fn local_fallback_path(service: &str) -> PathBuf {
-    repo_root().join("local").join(format!("{}.env", service))
+    /// `local/<project_name>/<service>.env` — generic local fallback (gitignored, has secrets).
+    pub fn local_fallback_path(&self, service: &str) -> std::path::PathBuf {
+        repo_root()
+            .join("local")
+            .join(&self.project_name)
+            .join(format!("{}.env", service))
+    }
+
+    /// Relative display path for the preset local cache (for user-facing messages).
+    pub fn preset_local_rel(&self, service: &str, preset: &str) -> String {
+        format!("local/{}/{}.{}.env", self.project_name, service, preset)
+    }
+
+    /// Relative display path for the generic local fallback (for user-facing messages).
+    pub fn local_fallback_rel(&self, service: &str) -> String {
+        format!("local/{}/{}.env", self.project_name, service)
+    }
 }
 
 /// `env/<service>/<preset>.env` — tracked preset profile (no secrets).
@@ -214,6 +239,7 @@ pub fn available_presets(service: &str) -> Vec<String> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SecretBackend {
     OnePassword,
+    Sqlite,
     None,
 }
 
@@ -226,22 +252,38 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn load() -> Self {
+    pub fn load() -> anyhow::Result<Self> {
+        let config_file = project_config_file();
+        if !config_file.exists() {
+            anyhow::bail!(
+                "settings.json not found at {:?}\nRun `penv init` to create one.",
+                config_file
+            );
+        }
+
         let local = load_json(&settings_file());
-        let proj_json = load_json(&project_config_file());
+        let proj_json = load_json(&config_file);
 
         let backend = {
             if let Some(b) = local.get("secret_backend").and_then(|v| v.as_str()) {
                 match b {
                     "onepassword" => SecretBackend::OnePassword,
+                    "sqlite" => SecretBackend::Sqlite,
                     _ => SecretBackend::None,
                 }
-} else {
+            } else {
                 SecretBackend::None
             }
         };
 
         let project = parse_project(&proj_json);
+
+        if project.project_name.is_empty() {
+            anyhow::bail!(
+                "settings.json must have a non-empty project.name field.\n\
+                 Example: {{\"project\": {{\"name\": \"my-project\", ...}}}}"
+            );
+        }
 
         let op_vault = local
             .get("onepassword_vault")
@@ -249,17 +291,17 @@ impl Settings {
             .map(|s| s.to_string())
             .unwrap_or_else(|| project.op_vault.clone());
 
-
-        Settings {
+        Ok(Settings {
             secret_backend: backend,
             op_vault,
             project,
-        }
+        })
     }
 
     pub fn backend_label(&self) -> &'static str {
         match self.secret_backend {
             SecretBackend::OnePassword => "1Password",
+            SecretBackend::Sqlite => "SQLite",
             SecretBackend::None => "local-only",
         }
     }
@@ -352,16 +394,15 @@ mod tests {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
-        let settings_path = dir.path().join("settings.local.json");
-        let mut f = std::fs::File::create(&settings_path).unwrap();
-        write!(
-            f,
-            r#"{{"secret_backend": "onepassword", "onepassword_vault": "My Vault"}}"#
-        )
-        .unwrap();
+        // settings.json with required project.name
+        let mut pf = std::fs::File::create(dir.path().join("settings.json")).unwrap();
+        write!(pf, r#"{{"project":{{"name":"TestProj"}}}}"#).unwrap();
+        // settings.local.json with backend override
+        let mut lf = std::fs::File::create(dir.path().join("settings.local.json")).unwrap();
+        write!(lf, r#"{{"secret_backend": "onepassword", "onepassword_vault": "My Vault"}}"#).unwrap();
 
         std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
-        let s = Settings::load();
+        let s = Settings::load().unwrap();
         std::env::remove_var("PENV_REPO_ROOT");
 
         assert_eq!(s.secret_backend, SecretBackend::OnePassword);
@@ -369,14 +410,15 @@ mod tests {
     }
 
     #[test]
-    fn settings_no_file_returns_local_only() {
+    fn settings_no_file_returns_error() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
-        let s = Settings::load();
+        let result = Settings::load();
         std::env::remove_var("PENV_REPO_ROOT");
-        assert_eq!(s.secret_backend, SecretBackend::None);
-        assert!(s.op_vault.is_empty());
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("settings.json not found"), "got: {}", msg);
     }
 
     #[test]
@@ -392,7 +434,7 @@ mod tests {
         .unwrap();
 
         std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
-        let s = Settings::load();
+        let s = Settings::load().unwrap();
         std::env::remove_var("PENV_REPO_ROOT");
 
         assert_eq!(s.project.project_name, "Acme");

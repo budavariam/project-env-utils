@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use crate::backend::SecretBackend;
 use crate::config::{
-    fallback_profile_path, local_env_path, local_fallback_path, preset_local_path, Settings,
+    fallback_profile_path, Settings,
 };
 use crate::env_file::write_file;
 use crate::state::set_service_preset;
@@ -42,7 +42,7 @@ pub fn load_service(
     backend: Option<&dyn SecretBackend>,
     settings: &Settings,
 ) -> bool {
-    let dest = local_env_path(service, None);
+    let dest = settings.project.service_env_path(service, None);
     if !dest.parent().map(|p| p.exists()).unwrap_or(false) {
         println!(
             "  skip {} — repo not found at {:?}",
@@ -79,12 +79,12 @@ pub fn load_service(
     }
 
     // 2. Preset-specific local file
-    let preset_local = preset_local_path(service, preset);
+    let preset_local = settings.project.preset_local_path(service, preset);
     if preset_local.exists() {
         if let Ok(content) = std::fs::read_to_string(&preset_local) {
             crate::backup::backup_env_before_write(
                 &format!("{}/{}", service, preset), &dest, "load-env",
-                &format!("load-env {}/{} from local cache {}.{}.env", service, preset, service, preset),
+                &format!("load-env {}/{} from local cache {}", service, preset, settings.project.preset_local_rel(service, preset)),
             );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
@@ -96,12 +96,12 @@ pub fn load_service(
     }
 
     // 3. Generic local fallback
-    let fallback = local_fallback_path(service);
+    let fallback = settings.project.local_fallback_path(service);
     if fallback.exists() {
         if let Ok(content) = std::fs::read_to_string(&fallback) {
             crate::backup::backup_env_before_write(
                 &format!("{}/{}", service, preset), &dest, "load-env",
-                &format!("load-env {}/{} from generic local fallback {}.env", service, preset, service),
+                &format!("load-env {}/{} from generic local fallback {}", service, preset, settings.project.local_fallback_rel(service)),
             );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
@@ -179,10 +179,14 @@ mod tests {
     }
 
     fn test_settings() -> Settings {
+        use crate::config::ProjectConfig;
         Settings {
             secret_backend: SB::None,
             op_vault: String::new(),
-            project: Default::default(),
+            project: ProjectConfig {
+                project_name: "test-proj".to_string(),
+                ..Default::default()
+            },
         }
     }
 
@@ -209,7 +213,7 @@ mod tests {
         let service = "my-api";
         let (_base, root, parent, svc_dir) = setup_fixture(service);
 
-        let local_dir = root.join("local");
+        let local_dir = root.join("local").join("test-proj");
         std::fs::create_dir_all(&local_dir).unwrap();
         std::fs::write(local_dir.join("my-api.env"), "FALLBACK=true\n").unwrap();
 
@@ -235,7 +239,7 @@ mod tests {
         let service = "my-api";
         let (_base, root, parent, svc_dir) = setup_fixture(service);
 
-        let local_dir = root.join("local");
+        let local_dir = root.join("local").join("test-proj");
         std::fs::create_dir_all(&local_dir).unwrap();
         std::fs::write(local_dir.join("my-api.test.env"), "PRESET_LOCAL=1\n").unwrap();
 
@@ -254,7 +258,7 @@ mod tests {
         let service = "my-api";
         let (_base, root, parent, svc_dir) = setup_fixture(service);
 
-        let local_dir = root.join("local");
+        let local_dir = root.join("local").join("test-proj");
         std::fs::create_dir_all(&local_dir).unwrap();
         std::fs::write(local_dir.join("my-api.env"), "GENERIC_LOCAL=1\n").unwrap();
 

@@ -1,4 +1,5 @@
 pub mod onepassword;
+pub mod sqlite;
 
 use anyhow::Result;
 
@@ -32,6 +33,14 @@ pub trait SecretBackend: Send + Sync {
     /// Backends may override to show their internal key format.
     fn key_display(&self, service: &str, preset: &str) -> String {
         format!("{}:{}", service, preset)
+    }
+
+    /// Return the backend's last-modified timestamp for the given (service, preset) as an
+    /// ISO 8601 UTC string (e.g. "2024-01-15T14:23:45Z"). Returns None if not supported
+    /// or if the item doesn't exist. Note: some backends (1Password) track at the item
+    /// level, not per-preset — the timestamp reflects the last change to any preset.
+    fn item_updated_at(&self, _service: &str, _preset: &str) -> Option<String> {
+        None
     }
 
     /// Hook called after a successful push (e.g., bucket assignment). Default is a no-op.
@@ -105,6 +114,13 @@ pub fn active_backend(settings: &Settings) -> Option<Box<dyn SecretBackend>> {
             } else {
                 None
             }
+        }
+        SB::Sqlite => {
+            let b = sqlite::SqliteBackend::new(
+                sqlite::SqliteBackend::default_path(),
+                &settings.project.project_name,
+            );
+            Some(Box::new(b))
         }
         SB::None => None,
     }
