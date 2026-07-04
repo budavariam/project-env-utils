@@ -22,6 +22,11 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "penv", about = "Dev environment utilities", version)]
 struct Cli {
+    /// Path to the penv config directory (the one containing settings.json).
+    /// Overrides auto-detection from the current directory / git root.
+    #[arg(long, global = true)]
+    config: Option<String>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -160,6 +165,13 @@ enum OpSub {
 
 fn main() {
     let cli = Cli::parse();
+
+    // Apply --config / PENV_REPO_ROOT before loading settings so all path
+    // helpers in config.rs see the override via the env var.
+    if let Some(ref dir) = cli.config {
+        std::env::set_var("PENV_REPO_ROOT", dir);
+    }
+
     let settings = config::Settings::load().unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
         std::process::exit(1);

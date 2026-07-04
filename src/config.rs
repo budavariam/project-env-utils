@@ -127,16 +127,68 @@ pub struct ProjectConfig {
 
 // ── Runtime paths ──────────────────────────────────────────────────────────────
 
-/// Directory that contains the penv binary (= the repo root).
+/// Directory that contains the penv settings (= the repo root).
+///
+/// Resolution order:
+///   1. `PENV_REPO_ROOT` env var (set by `--config` flag or manually)
+///   2. Current directory — if it contains a valid `settings.json`
+///   3. Git root of the current directory — if it contains a valid `settings.json`
+///   4. Directory containing the penv binary (original fallback)
 pub fn repo_root() -> PathBuf {
     if let Ok(override_path) = std::env::var("PENV_REPO_ROOT") {
         return PathBuf::from(override_path);
+    }
+    if let Some(found) = detect_settings_dir() {
+        return found;
     }
     std::env::current_exe()
         .ok()
         .and_then(|p| std::fs::canonicalize(&p).ok())
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Check the current directory then its git root for a valid penv `settings.json`.
+fn detect_settings_dir() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    if is_penv_root(&cwd) {
+        return Some(cwd.clone());
+    }
+    let git_root = git_root_of(&cwd)?;
+    if git_root != cwd && is_penv_root(&git_root) {
+        return Some(git_root);
+    }
+    None
+}
+
+/// Returns true if `dir/settings.json` exists and has a non-empty `project.name`.
+fn is_penv_root(dir: &std::path::Path) -> bool {
+    std::fs::read_to_string(dir.join("settings.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| {
+            v.get("project")
+                .and_then(|p| p.get("name"))
+                .and_then(|n| n.as_str())
+                .map(|s| !s.is_empty())
+        })
+        .unwrap_or(false)
+}
+
+/// Run `git rev-parse --show-toplevel` in `dir` and return the result.
+fn git_root_of(dir: &std::path::Path) -> Option<PathBuf> {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    if out.status.success() {
+        String::from_utf8(out.stdout)
+            .ok()
+            .map(|s| PathBuf::from(s.trim()))
+    } else {
+        None
+    }
 }
 
 /// Parent of repo_root — the directory that holds all service repos.
@@ -439,5 +491,50 @@ mod tests {
         assert_eq!(s.project.services[0].env_vars, vec!["FOO", "BAR"]);
         assert_eq!(s.project.dev_ui.repo, "svc-a");
         assert_eq!(s.project.dev_backend.session_name, "acme-backend");
+    }
+
+    #[test]
+    fn repo_root_detects_cwd_with_settings() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"project":{"name":"DetectMe"}}"#,
+        )
+        .unwrap();
+
+        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        let root = repo_root();
+        std::env::remove_var("PENV_REPO_ROOT");
+
+        assert_eq!(root, dir.path());
+    }
+
+    #[test]
+    fn is_penv_root_returns_false_for_empty_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"project":{"name":""}}"#,
+        )
+        .unwrap();
+        assert!(!is_penv_root(dir.path()));
+    }
+
+    #[test]
+    fn is_penv_root_returns_false_when_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_penv_root(dir.path()));
+    }
+
+    #[test]
+    fn is_penv_root_returns_true_for_valid_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"project":{"name":"MyProj"}}"#,
+        )
+        .unwrap();
+        assert!(is_penv_root(dir.path()));
     }
 }
