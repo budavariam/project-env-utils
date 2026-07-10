@@ -61,6 +61,12 @@
           "env_path": {
             "type": "string",
             "description": "Path to the .env file relative to the service repo root. Defaults to '.env' when absent."
+          },
+          "files": {
+            "type": "array",
+            "description": "Additional sensitive files managed alongside the .env (e.g. TLS certificates, signing keys).",
+            "items": { "$ref": "#/$defs/secretFile" },
+            "default": []
           }
         }
       },
@@ -150,6 +156,27 @@
     }
   },
   "$defs": {
+    "secretFile": {
+      "type": "object",
+      "required": ["label", "path"],
+      "additionalProperties": false,
+      "description": "A sensitive file tracked by the secret backend alongside the .env.",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Short identifier used as the storage key. Must be unique within the service."
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to the file relative to the service repo root (e.g. 'keys/signing.key')."
+        },
+        "shared": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the file content is identical across all presets and is stored once. When false (default), a separate copy is kept per preset."
+        }
+      }
+    },
     "sessionPane": {
       "type": "object",
       "required": ["repo"],

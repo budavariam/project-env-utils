@@ -4,31 +4,68 @@ use crate::config::Settings;
 use crate::env_file::read_file;
 use similar::{ChangeTag, TextDiff};
 
+const RED: &str = "\x1b[31m";
+const GREEN: &str = "\x1b[32m";
+const CYAN: &str = "\x1b[36m";
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
+
+/// Determine whether to use color for diff output.
+/// Color is on by default; disabled by --no-color, NO_COLOR env var,
+/// "diff_color": false in settings.local.json, or when stdout is not a TTY.
+pub fn resolve_use_color(settings: &Settings, no_color_flag: bool) -> bool {
+    use std::io::IsTerminal;
+    settings.color_diff
+        && !no_color_flag
+        && std::env::var("NO_COLOR").is_err()
+        && std::io::stdout().is_terminal()
+}
+
 /// Generate a unified diff string between `old` and `new` text.
 /// Returns up to `max_lines` diff lines; appends a truncation note if more exist.
+/// Pass `use_color: true` to emit ANSI color codes.
 pub fn unified_diff(
     old: &str,
     new: &str,
     from_label: &str,
     to_label: &str,
     max_lines: usize,
+    use_color: bool,
 ) -> String {
     let diff = TextDiff::from_lines(old, new);
     let mut lines: Vec<String> = Vec::new();
 
-    lines.push(format!("--- {}", from_label));
-    lines.push(format!("+++ {}", to_label));
+    let (red, green, cyan, reset) = if use_color {
+        (RED, GREEN, CYAN, RESET)
+    } else {
+        ("", "", "", "")
+    };
 
+    lines.push(format!("{}--- {}  [remote]{}", red, from_label, reset));
+    lines.push(format!("{}+++ {}  [local]{}", green, to_label, reset));
+
+    let mut first_group = true;
     for group in diff.grouped_ops(3) {
+        if !first_group {
+            lines.push(format!("{}@@ ~~ @@{}", cyan, reset));
+        }
+        first_group = false;
+
         for op in &group {
             for change in diff.iter_changes(op) {
-                let prefix = match change.tag() {
-                    ChangeTag::Delete => "-",
-                    ChangeTag::Insert => "+",
-                    ChangeTag::Equal => " ",
+                let (prefix, color) = match change.tag() {
+                    ChangeTag::Delete => ("-", red),
+                    ChangeTag::Insert => ("+", green),
+                    ChangeTag::Equal => (" ", ""),
                 };
                 let line = change.value();
-                lines.push(format!("{}{}", prefix, line.trim_end_matches('\n')));
+                lines.push(format!(
+                    "{}{}{}{}",
+                    color,
+                    prefix,
+                    line.trim_end_matches('\n'),
+                    reset
+                ));
             }
         }
     }
@@ -77,6 +114,32 @@ pub fn cmd_push(
             backend.post_push(service, preset);
         } else {
             eprintln!("  FAILED  {}", backend.key_display(service, preset));
+        }
+
+        // Push managed files for this service.
+        for file_cfg in service_file_configs(service, settings) {
+            let key = file_cfg.backend_key(preset);
+            let file_dest = settings.project.service_file_dest(service, file_cfg);
+            let file_content = match read_file(&file_dest) {
+                Some(c) => c,
+                None => {
+                    println!("  skip {}/{} — {:?} not found", service, file_cfg.label, file_dest);
+                    continue;
+                }
+            };
+            if dry_run {
+                println!(
+                    "  [dry-run] file {} {}/{}  ({} bytes)",
+                    if backend.fetch_file(service, &key).is_some() { "UPDATE" } else { "CREATE" },
+                    service,
+                    file_cfg.label,
+                    file_content.len()
+                );
+            } else if backend.push_file(service, &key, &file_content) {
+                println!("  pushed  {}/{}", service, file_cfg.label);
+            } else {
+                eprintln!("  FAILED  {}/{}", service, file_cfg.label);
+            }
         }
     }
     if dry_run {
@@ -137,6 +200,46 @@ pub fn cmd_pull(
                 }
             }
         }
+
+        // Pull managed files for this service.
+        for file_cfg in service_file_configs(service, settings) {
+            let key = file_cfg.backend_key(preset);
+            let file_dest = settings.project.service_file_dest(service, file_cfg);
+            match backend.fetch_file(service, &key) {
+                None => println!(
+                    "  skip {}/{} — '{}' not found in {}",
+                    service,
+                    file_cfg.label,
+                    key,
+                    backend.label()
+                ),
+                Some(content) => {
+                    if dry_run {
+                        println!(
+                            "  [dry-run] would write {} bytes to {:?}  (file {})",
+                            content.len(),
+                            file_dest,
+                            key
+                        );
+                    } else {
+                        if let Some(parent) = file_dest.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        crate::backup::backup_env_before_write(
+                            &format!("{}/{}", service, file_cfg.label),
+                            &file_dest,
+                            "op-pull",
+                            &format!("op pull {} file {} from {}", preset, key, backend.label()),
+                        );
+                        if std::fs::write(&file_dest, &content).is_ok() {
+                            println!("  wrote {}/{}  (from {})", service, file_cfg.path, key);
+                        } else {
+                            eprintln!("  error writing {:?}", file_dest);
+                        }
+                    }
+                }
+            }
+        }
     }
     if dry_run {
         println!("Done (dry-run — no changes made).");
@@ -150,9 +253,12 @@ pub fn cmd_diff(
     service_filter: Option<&str>,
     backend: &dyn SecretBackend,
     settings: &Settings,
+    use_color: bool,
 ) {
     let services = resolve_services(service_filter, settings);
     let mut any_diff = false;
+
+    let (bold, reset) = if use_color { (BOLD, RESET) } else { ("", "") };
 
     for service in &services {
         let local = read_file(&settings.project.service_env_path(service, None));
@@ -191,8 +297,11 @@ pub fn cmd_diff(
                         backend.key_display(service, preset)
                     );
                     let to_label = format!("local/{}/.env", service);
-                    let diff_output = unified_diff(rem, loc, &from_label, &to_label, 40);
-                    println!("\n{} differs:", service);
+                    let diff_output = unified_diff(rem, loc, &from_label, &to_label, 40, use_color);
+                    println!(
+                        "\n{}── {} ──────────────────────────{}",
+                        bold, service, reset
+                    );
                     println!("{}", diff_output);
                 }
             }
@@ -269,6 +378,19 @@ fn resolve_services(filter: Option<&str>, settings: &Settings) -> Vec<String> {
     }
 }
 
+fn service_file_configs<'a>(
+    service: &str,
+    settings: &'a Settings,
+) -> &'a [crate::config::SecretFileConfig] {
+    settings
+        .project
+        .services
+        .iter()
+        .find(|s| s.name == service)
+        .map(|s| s.files.as_slice())
+        .unwrap_or(&[])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,7 +404,7 @@ mod tests {
     fn unified_diff_truncates_at_max_lines() {
         let old: String = (0..50).map(|i| format!("line{}\n", i)).collect();
         let new: String = (50..100).map(|i| format!("line{}\n", i)).collect();
-        let diff = unified_diff(&old, &new, "old", "new", 40);
+        let diff = unified_diff(&old, &new, "old", "new", 40, false);
         let line_count = diff.lines().count();
         assert!(diff.contains("more lines"), "should mention truncation");
         assert!(line_count <= 42, "got {} lines", line_count);
@@ -291,7 +413,7 @@ mod tests {
     #[test]
     fn unified_diff_identical_produces_minimal_output() {
         let text = "FOO=bar\nBAZ=qux\n";
-        let diff = unified_diff(text, text, "a", "b", 40);
+        let diff = unified_diff(text, text, "a", "b", 40, false);
         let change_lines: Vec<&str> = diff
             .lines()
             .filter(|l| {
@@ -310,7 +432,7 @@ mod tests {
     fn unified_diff_shows_changes() {
         let old = "FOO=bar\n";
         let new = "FOO=baz\n";
-        let diff = unified_diff(old, new, "old", "new", 40);
+        let diff = unified_diff(old, new, "old", "new", 40, false);
         assert!(diff.contains("-FOO=bar"));
         assert!(diff.contains("+FOO=baz"));
     }
@@ -383,14 +505,13 @@ mod tests {
             secret_backend: SB::None,
             op_vault: String::new(),
             session_mux: crate::config::SessionMultiplexer::Tmux,
+            color_diff: true,
             project: ProjectConfig {
                 services: services
                     .iter()
                     .map(|s| ServiceConfig {
                         name: s.to_string(),
-                        description: String::new(),
-                        env_vars: vec![],
-                        env_path: None,
+                        ..Default::default()
                     })
                     .collect(),
                 ..Default::default()

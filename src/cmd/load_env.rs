@@ -9,7 +9,7 @@
 use anyhow::Result;
 
 use crate::backend::SecretBackend;
-use crate::config::{fallback_profile_path, Settings};
+use crate::config::{fallback_profile_path, SecretFileConfig, Settings};
 use crate::env_file::write_file;
 use crate::state::set_service_preset;
 
@@ -55,16 +55,41 @@ pub fn load_service(
         return false;
     }
 
+    let env_ok = load_service_env(service, preset, backend, settings, &dest);
+
+    // Load managed files regardless of whether .env loading succeeded.
+    let files: Vec<_> = settings
+        .project
+        .services
+        .iter()
+        .find(|s| s.name == service)
+        .map(|s| s.files.clone())
+        .unwrap_or_default();
+    for file_cfg in &files {
+        load_service_file(service, preset, file_cfg, backend, settings);
+    }
+
+    env_ok
+}
+
+/// Inner helper: load the .env for `service`. Returns true on success.
+fn load_service_env(
+    service: &str,
+    preset: &str,
+    backend: Option<&dyn SecretBackend>,
+    settings: &Settings,
+    dest: &std::path::Path,
+) -> bool {
     // 1. Secret backend
     if let Some(b) = backend {
         if let Some(content) = b.fetch(service, preset) {
             crate::backup::backup_env_before_write(
                 &format!("{}/{}", service, preset),
-                &dest,
+                dest,
                 "load-env",
                 &format!("load-env {}/{} from {}", service, preset, b.label()),
             );
-            if let Err(e) = write_file(&dest, &content) {
+            if let Err(e) = write_file(dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;
             }
@@ -89,7 +114,7 @@ pub fn load_service(
         if let Ok(content) = std::fs::read_to_string(&preset_local) {
             crate::backup::backup_env_before_write(
                 &format!("{}/{}", service, preset),
-                &dest,
+                dest,
                 "load-env",
                 &format!(
                     "load-env {}/{} from local cache {}",
@@ -98,7 +123,7 @@ pub fn load_service(
                     settings.project.preset_local_rel(service, preset)
                 ),
             );
-            if let Err(e) = write_file(&dest, &content) {
+            if let Err(e) = write_file(dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;
             }
@@ -113,7 +138,7 @@ pub fn load_service(
         if let Ok(content) = std::fs::read_to_string(&fallback) {
             crate::backup::backup_env_before_write(
                 &format!("{}/{}", service, preset),
-                &dest,
+                dest,
                 "load-env",
                 &format!(
                     "load-env {}/{} from generic local fallback {}",
@@ -122,7 +147,7 @@ pub fn load_service(
                     settings.project.local_fallback_rel(service)
                 ),
             );
-            if let Err(e) = write_file(&dest, &content) {
+            if let Err(e) = write_file(dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;
             }
@@ -140,14 +165,14 @@ pub fn load_service(
         if let Ok(content) = std::fs::read_to_string(&profile) {
             crate::backup::backup_env_before_write(
                 &format!("{}/{}", service, preset),
-                &dest,
+                dest,
                 "load-env",
                 &format!(
                     "load-env {}/{} from git profile env/{}/{}.env",
                     service, preset, service, preset
                 ),
             );
-            if let Err(e) = write_file(&dest, &content) {
+            if let Err(e) = write_file(dest, &content) {
                 eprintln!("  error writing {}: {}", service, e);
                 return false;
             }
@@ -164,6 +189,66 @@ pub fn load_service(
         service, preset
     );
     false
+}
+
+/// Load a single managed file for a service, trying backend then local cache.
+fn load_service_file(
+    service: &str,
+    preset: &str,
+    file_cfg: &SecretFileConfig,
+    backend: Option<&dyn SecretBackend>,
+    settings: &Settings,
+) {
+    let dest = settings.project.service_file_dest(service, file_cfg);
+    let key = file_cfg.backend_key(preset);
+
+    // 1. Secret backend
+    if let Some(b) = backend {
+        if let Some(content) = b.fetch_file(service, &key) {
+            if let Some(parent) = dest.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            crate::backup::backup_env_before_write(
+                &format!("{}/{}", service, file_cfg.label),
+                &dest,
+                "load-env",
+                &format!("load-env {}/{} file {} from {}", service, preset, key, b.label()),
+            );
+            if let Err(e) = write_file(&dest, &content) {
+                eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);
+            } else {
+                println!("  wrote {}/{}  ({}: {})", service, file_cfg.path, b.label(), key);
+            }
+            return;
+        }
+    }
+
+    // 2. Local file cache
+    let cache = settings.project.file_local_cache(service, file_cfg, preset);
+    if cache.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cache) {
+            if let Some(parent) = dest.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            crate::backup::backup_env_before_write(
+                &format!("{}/{}", service, file_cfg.label),
+                &dest,
+                "load-env",
+                &format!("load-env {}/{} file {} from local cache", service, preset, key),
+            );
+            if let Err(e) = write_file(&dest, &content) {
+                eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);
+            } else {
+                println!("  wrote {}/{}  (local cache)", service, file_cfg.path);
+            }
+            return;
+        }
+    }
+
+    println!(
+        "  skip {}/{} — no source found (key: {})",
+        service, file_cfg.label, key
+    );
 }
 
 #[cfg(test)]
@@ -208,6 +293,7 @@ mod tests {
             secret_backend: SB::None,
             op_vault: String::new(),
             session_mux: crate::config::SessionMultiplexer::Tmux,
+            color_diff: true,
             project: ProjectConfig {
                 project_name: "test-proj".to_string(),
                 ..Default::default()
@@ -367,6 +453,7 @@ mod tests {
             secret_backend: SB::None,
             op_vault: String::new(),
             session_mux: crate::config::SessionMultiplexer::Tmux,
+            color_diff: true,
             project: Default::default(),
         };
         let result = load_service(service, "test", Some(&backend), &settings);

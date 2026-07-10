@@ -125,21 +125,7 @@ impl OpBackend {
 
     /// Find the "env" field value inside the section whose label == preset.
     fn extract_preset(item: &serde_json::Value, preset: &str) -> Option<String> {
-        let fields = item.get("fields")?.as_array()?;
-        for field in fields {
-            let section_label = field
-                .get("section")
-                .and_then(|s| s.get("label"))
-                .and_then(|v| v.as_str());
-            let field_label = field.get("label").and_then(|v| v.as_str());
-            if section_label == Some(preset) && field_label == Some("env") {
-                return field
-                    .get("value")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-            }
-        }
-        None
+        Self::extract_field(item, preset, "env")
     }
 
     /// Return a copy of `item` with the (preset, content) section+field upserted.
@@ -148,61 +134,7 @@ impl OpBackend {
         preset: &str,
         content: &str,
     ) -> serde_json::Value {
-        let mut sections: Vec<serde_json::Value> = item
-            .get("sections")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        let mut fields: Vec<serde_json::Value> = item
-            .get("fields")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        // Find or create the section for this preset.
-        let section_id = sections
-            .iter()
-            .find(|s| s.get("label").and_then(|v| v.as_str()) == Some(preset))
-            .and_then(|s| s.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .unwrap_or_else(|| format!("s_{}", preset));
-
-        if !sections
-            .iter()
-            .any(|s| s.get("label").and_then(|v| v.as_str()) == Some(preset))
-        {
-            sections.push(serde_json::json!({"id": section_id, "label": preset}));
-        }
-
-        // Find or create the env field in that section.
-        let existing_idx = fields.iter().position(|f| {
-            let sl = f
-                .get("section")
-                .and_then(|s| s.get("label"))
-                .and_then(|v| v.as_str());
-            let fl = f.get("label").and_then(|v| v.as_str());
-            sl == Some(preset) && fl == Some("env")
-        });
-        let field_id = fields
-            .get(existing_idx.unwrap_or(usize::MAX))
-            .and_then(|f| f.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .unwrap_or_else(|| format!("f_{}_env", preset));
-        let new_field = serde_json::json!({
-            "id": field_id,
-            "type": "CONCEALED",
-            "section": {"id": section_id, "label": preset},
-            "label": "env",
-            "value": content
-        });
-        if let Some(idx) = existing_idx {
-            fields[idx] = new_field;
-        } else {
-            fields.push(new_field);
-        }
-
-        let mut updated = item.clone();
-        updated["sections"] = serde_json::Value::Array(sections);
-        updated["fields"] = serde_json::Value::Array(fields);
-        updated
+        Self::upsert_field_in_json(item, preset, "env", content)
     }
 
     /// Return a copy of `item` with the section and field for `preset` removed.
@@ -300,6 +232,105 @@ impl OpBackend {
             item["notesPlain"] = serde_json::Value::String(description.to_string());
         }
         item
+    }
+
+    /// Parse a file key into its (section, field_label) components.
+    ///
+    /// `"<label>"` (no slash)         → section `"_files"`, field = label
+    /// `"<preset>/<label>"` (slash)   → section = preset, field = label
+    fn parse_file_key(key: &str) -> (&str, &str) {
+        match key.split_once('/') {
+            Some((section, label)) => (section, label),
+            None => ("_files", key),
+        }
+    }
+
+    /// Extract a specific (section, field_label) value from an item's fields array.
+    fn extract_field(
+        item: &serde_json::Value,
+        section_label: &str,
+        field_label: &str,
+    ) -> Option<String> {
+        let fields = item.get("fields")?.as_array()?;
+        for field in fields {
+            let sl = field
+                .get("section")
+                .and_then(|s| s.get("label"))
+                .and_then(|v| v.as_str());
+            let fl = field.get("label").and_then(|v| v.as_str());
+            if sl == Some(section_label) && fl == Some(field_label) {
+                return field
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            }
+        }
+        None
+    }
+
+    /// Return a copy of `item` with the named field in the given section upserted.
+    fn upsert_field_in_json(
+        item: &serde_json::Value,
+        section_label: &str,
+        field_label: &str,
+        content: &str,
+    ) -> serde_json::Value {
+        let mut sections: Vec<serde_json::Value> = item
+            .get("sections")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut fields: Vec<serde_json::Value> = item
+            .get("fields")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let section_id = sections
+            .iter()
+            .find(|s| s.get("label").and_then(|v| v.as_str()) == Some(section_label))
+            .and_then(|s| s.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("s_{}", section_label.replace(|c: char| !c.is_alphanumeric(), "_")));
+
+        if !sections
+            .iter()
+            .any(|s| s.get("label").and_then(|v| v.as_str()) == Some(section_label))
+        {
+            sections.push(serde_json::json!({"id": section_id, "label": section_label}));
+        }
+
+        let existing_idx = fields.iter().position(|f| {
+            let sl = f
+                .get("section")
+                .and_then(|s| s.get("label"))
+                .and_then(|v| v.as_str());
+            let fl = f.get("label").and_then(|v| v.as_str());
+            sl == Some(section_label) && fl == Some(field_label)
+        });
+        let field_id = fields
+            .get(existing_idx.unwrap_or(usize::MAX))
+            .and_then(|f| f.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| {
+                let safe_label = field_label.replace(|c: char| !c.is_alphanumeric(), "_");
+                format!("f_{}_{}", section_label.replace(|c: char| !c.is_alphanumeric(), "_"), safe_label)
+            });
+        let new_field = serde_json::json!({
+            "id": field_id,
+            "type": "CONCEALED",
+            "section": {"id": section_id, "label": section_label},
+            "label": field_label,
+            "value": content
+        });
+        if let Some(idx) = existing_idx {
+            fields[idx] = new_field;
+        } else {
+            fields.push(new_field);
+        }
+
+        let mut updated = item.clone();
+        updated["sections"] = serde_json::Value::Array(sections);
+        updated["fields"] = serde_json::Value::Array(fields);
+        updated
     }
 
     /// Write `template` to a temp file, run `op item create --template`, clean up.
@@ -487,6 +518,50 @@ impl SecretBackend for OpBackend {
     fn item_updated_at(&self, service: &str, _preset: &str) -> Option<String> {
         let item = self.get_item_json(service)?;
         item.get("updated_at")?.as_str().map(|s| s.to_string())
+    }
+
+    fn fetch_file(&self, service: &str, key: &str) -> Option<String> {
+        let (section, label) = Self::parse_file_key(key);
+        let item = self.get_item_json(service)?;
+        Self::extract_field(&item, section, label)
+    }
+
+    fn push_file(&self, service: &str, key: &str, content: &str) -> bool {
+        let (section, label) = Self::parse_file_key(key);
+        let title = self.item_title(service);
+        let description = self
+            .descriptions
+            .get(service)
+            .map(|s| s.as_str())
+            .unwrap_or("");
+        match self.get_item_json(service) {
+            None => {
+                let item = Self::upsert_field_in_json(
+                    &serde_json::json!({"title": title, "category": "SECURE_NOTE", "sections": [], "fields": []}),
+                    section,
+                    label,
+                    content,
+                );
+                let mut item = Self::clean_for_template(&item);
+                item["title"] = serde_json::Value::String(title.clone());
+                item["category"] = serde_json::Value::String("SECURE_NOTE".to_string());
+                if !description.is_empty() {
+                    item["notesPlain"] = serde_json::Value::String(description.to_string());
+                }
+                self.create_from_template(&item)
+            }
+            Some(ref existing) => {
+                let updated = Self::upsert_field_in_json(existing, section, label, content);
+                let template = Self::clean_for_template(&updated);
+                let (del_ok, _, err) =
+                    self.run(&["op", "item", "delete", &title, "--vault", &self.vault]);
+                if !del_ok {
+                    eprintln!("  op error deleting for update: {}", err.trim());
+                    return false;
+                }
+                self.create_from_template(&template)
+            }
+        }
     }
 }
 

@@ -45,6 +45,22 @@ pub trait SecretBackend: Send + Sync {
 
     /// Hook called after a successful push (e.g., bucket assignment). Default is a no-op.
     fn post_push(&self, _service: &str, _preset: &str) {}
+
+    /// Fetch a managed file by key. Returns the file content as a string, or None if not found.
+    ///
+    /// `key` is produced by `SecretFileConfig::backend_key(preset)`:
+    ///   - shared files:          `"<label>"`          (e.g. `"signing.key"`)
+    ///   - preset-specific files: `"<preset>/<label>"` (e.g. `"test/cert.pem"`)
+    fn fetch_file(&self, _service: &str, _key: &str) -> Option<String> {
+        None
+    }
+
+    /// Store a managed file by key. Returns true on success.
+    ///
+    /// `key` follows the same format as `fetch_file`.
+    fn push_file(&self, _service: &str, _key: &str, _content: &str) -> bool {
+        false
+    }
 }
 
 /// Run an external command, returning (success, stdout, stderr).

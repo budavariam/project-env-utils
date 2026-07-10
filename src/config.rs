@@ -9,6 +9,32 @@ use serde::Deserialize;
 
 // ── Project config structs ─────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+pub struct SecretFileConfig {
+    /// Short identifier used as the storage key and display name.
+    /// Must be unique within the service.
+    pub label: String,
+    /// Path to the file relative to the service repo root (e.g. "keys/my.key").
+    pub path: String,
+    /// When true the file content is the same across all presets and is stored
+    /// once (not per-preset). When false (default) a separate copy is kept per preset.
+    #[serde(default)]
+    pub shared: bool,
+}
+
+impl SecretFileConfig {
+    /// The key used to identify this file in a secret backend.
+    ///
+    /// Shared files use just the label; preset-specific files use `"<preset>/<label>"`.
+    pub fn backend_key(&self, preset: &str) -> String {
+        if self.shared {
+            self.label.clone()
+        } else {
+            format!("{}/{}", preset, self.label)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ServiceConfig {
     pub name: String,
@@ -21,6 +47,9 @@ pub struct ServiceConfig {
     /// Defaults to ".env" when absent.
     #[serde(default)]
     pub env_path: Option<String>,
+    /// Additional sensitive files managed alongside the .env (e.g. key files).
+    #[serde(default)]
+    pub files: Vec<SecretFileConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -279,6 +308,34 @@ impl ProjectConfig {
     pub fn local_fallback_rel(&self, service: &str) -> String {
         format!("local/{}/{}.env", self.project_name, service)
     }
+
+    /// Destination path for a managed file inside the service repo.
+    pub fn service_file_dest(&self, service: &str, file_cfg: &SecretFileConfig) -> PathBuf {
+        repo_parent().join(service).join(&file_cfg.path)
+    }
+
+    /// Local cache path for a managed file (gitignored).
+    ///
+    /// Shared files: `local/<project>/<service>/files/<label>`
+    /// Preset-specific files: `local/<project>/<service>/files/<preset>.<label>`
+    pub fn file_local_cache(
+        &self,
+        service: &str,
+        file_cfg: &SecretFileConfig,
+        preset: &str,
+    ) -> PathBuf {
+        let name = if file_cfg.shared {
+            file_cfg.label.clone()
+        } else {
+            format!("{}.{}", preset, file_cfg.label)
+        };
+        repo_root()
+            .join("local")
+            .join(&self.project_name)
+            .join(service)
+            .join("files")
+            .join(name)
+    }
 }
 
 /// `env/<service>/<preset>.env` — tracked preset profile (no secrets).
@@ -329,6 +386,9 @@ pub struct Settings {
     /// 1Password vault name — local override takes precedence over project default.
     pub op_vault: String,
     pub session_mux: SessionMultiplexer,
+    /// Whether to use ANSI colors in diff output. Default true; disable via "diff_color": false
+    /// in settings.local.json, --no-color flag, NO_COLOR env var, or non-TTY stdout.
+    pub color_diff: bool,
     pub project: ProjectConfig,
 }
 
@@ -372,10 +432,16 @@ impl Settings {
             _ => SessionMultiplexer::Tmux, // default
         };
 
+        let color_diff = local
+            .get("diff_color")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
         Ok(Settings {
             secret_backend: backend,
             op_vault,
             session_mux,
+            color_diff,
             project,
         })
     }
@@ -528,6 +594,7 @@ mod tests {
         assert_eq!(s.project.services.len(), 1);
         assert_eq!(s.project.services[0].name, "svc-a");
         assert_eq!(s.project.services[0].env_vars, vec!["FOO", "BAR"]);
+        assert_eq!(s.project.services[0].files, vec![]);
         assert_eq!(s.project.dev_ui.repo, "svc-a");
         assert_eq!(s.project.dev_backend.session_name, "acme-backend");
     }
