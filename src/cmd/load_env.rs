@@ -58,14 +58,14 @@ pub fn load_service(
     let env_ok = load_service_env(service, preset, backend, settings, &dest);
 
     // Load managed files regardless of whether .env loading succeeded.
-    let files: Vec<_> = settings
+    let files = settings
         .project
         .services
         .iter()
         .find(|s| s.name == service)
-        .map(|s| s.files.clone())
-        .unwrap_or_default();
-    for file_cfg in &files {
+        .map(|s| s.files.as_slice())
+        .unwrap_or(&[]);
+    for file_cfg in files {
         load_service_file(service, preset, file_cfg, backend, settings);
     }
 
@@ -212,12 +212,24 @@ fn load_service_file(
                 &format!("{}/{}", service, file_cfg.label),
                 &dest,
                 "load-env",
-                &format!("load-env {}/{} file {} from {}", service, preset, key, b.label()),
+                &format!(
+                    "load-env {}/{} file {} from {}",
+                    service,
+                    preset,
+                    key,
+                    b.label()
+                ),
             );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);
             } else {
-                println!("  wrote {}/{}  ({}: {})", service, file_cfg.path, b.label(), key);
+                println!(
+                    "  wrote {}/{}  ({}: {})",
+                    service,
+                    file_cfg.path,
+                    b.label(),
+                    key
+                );
             }
             return;
         }
@@ -234,7 +246,10 @@ fn load_service_file(
                 &format!("{}/{}", service, file_cfg.label),
                 &dest,
                 "load-env",
-                &format!("load-env {}/{} file {} from local cache", service, preset, key),
+                &format!(
+                    "load-env {}/{} file {} from local cache",
+                    service, preset, key
+                ),
             );
             if let Err(e) = write_file(&dest, &content) {
                 eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);

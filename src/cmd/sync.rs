@@ -123,14 +123,21 @@ pub fn cmd_push(
             let file_content = match read_file(&file_dest) {
                 Some(c) => c,
                 None => {
-                    println!("  skip {}/{} — {:?} not found", service, file_cfg.label, file_dest);
+                    println!(
+                        "  skip {}/{} — {:?} not found",
+                        service, file_cfg.label, file_dest
+                    );
                     continue;
                 }
             };
             if dry_run {
                 println!(
                     "  [dry-run] file {} {}/{}  ({} bytes)",
-                    if backend.fetch_file(service, &key).is_some() { "UPDATE" } else { "CREATE" },
+                    if backend.fetch_file(service, &key).is_some() {
+                        "UPDATE"
+                    } else {
+                        "CREATE"
+                    },
                     service,
                     file_cfg.label,
                     file_content.len()

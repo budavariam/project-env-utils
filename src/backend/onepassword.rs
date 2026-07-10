@@ -290,7 +290,12 @@ impl OpBackend {
             .iter()
             .find(|s| s.get("label").and_then(|v| v.as_str()) == Some(section_label))
             .and_then(|s| s.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .unwrap_or_else(|| format!("s_{}", section_label.replace(|c: char| !c.is_alphanumeric(), "_")));
+            .unwrap_or_else(|| {
+                format!(
+                    "s_{}",
+                    section_label.replace(|c: char| !c.is_alphanumeric(), "_")
+                )
+            });
 
         if !sections
             .iter()
@@ -307,12 +312,20 @@ impl OpBackend {
             let fl = f.get("label").and_then(|v| v.as_str());
             sl == Some(section_label) && fl == Some(field_label)
         });
-        let field_id = fields
-            .get(existing_idx.unwrap_or(usize::MAX))
-            .and_then(|f| f.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        let field_id = existing_idx
+            .and_then(|i| {
+                fields[i]
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_else(|| {
                 let safe_label = field_label.replace(|c: char| !c.is_alphanumeric(), "_");
-                format!("f_{}_{}", section_label.replace(|c: char| !c.is_alphanumeric(), "_"), safe_label)
+                format!(
+                    "f_{}_{}",
+                    section_label.replace(|c: char| !c.is_alphanumeric(), "_"),
+                    safe_label
+                )
             });
         let new_field = serde_json::json!({
             "id": field_id,
