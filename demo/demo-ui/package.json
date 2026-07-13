@@ -1,0 +1,11 @@
+{
+  "name": "demo-ui",
+  "version": "0.1.0",
+  "description": "Demo frontend application",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node src/dev.js",
+    "build": "echo 'build: demo-ui'",
+    "storybook": "echo 'storybook: not configured for demo'"
+  }
+}

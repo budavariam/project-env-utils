@@ -122,7 +122,7 @@ fn menu(options: &[(&str, &str)], default_key: &str) -> String {
 }
 
 fn show_diff(local: &str, remote: &str, from_label: &str, to_label: &str) {
-    let diff = unified_diff(remote, local, from_label, to_label, 60);
+    let diff = unified_diff(remote, local, from_label, to_label, 60, false);
     if diff.lines().all(|l| {
         l.starts_with(' ') || l.starts_with('-') || l.starts_with('+') || l.starts_with('@')
     }) {

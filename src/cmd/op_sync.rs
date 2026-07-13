@@ -74,10 +74,16 @@ pub fn run_pull(
     Ok(())
 }
 
-pub fn run_diff(preset: &str, service: Option<&str>, settings: &Settings) -> Result<()> {
+pub fn run_diff(
+    preset: &str,
+    service: Option<&str>,
+    settings: &Settings,
+    no_color: bool,
+) -> Result<()> {
     let b = make_backend(settings);
     require_op(&b);
-    sync::cmd_diff(preset, service, &b, settings);
+    let use_color = sync::resolve_use_color(settings, no_color);
+    sync::cmd_diff(preset, service, &b, settings, use_color);
     Ok(())
 }
 

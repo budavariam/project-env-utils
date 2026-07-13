@@ -1,0 +1,33 @@
+{
+  "$schema": "../../settings.schema.json",
+  "project": {
+    "name": "demo-project",
+    "op_vault": "",
+    "op_item_prefix": "demo",
+    "bucket": ""
+  },
+  "services": [
+    {
+      "name": "demo-api",
+      "description": "Backend API service",
+      "env_vars": ["NODE_ENV", "DATABASE_URL", "PORT", "SECRET_KEY"]
+    },
+    {
+      "name": "demo-ui",
+      "description": "Frontend application",
+      "env_vars": ["VITE_API_URL", "NODE_ENV"]
+    }
+  ],
+  "dev_ui": {
+    "repo": "demo-ui",
+    "pane_dev_cmd": "npm run dev",
+    "pane_sb_cmd": "npm run storybook"
+  },
+  "dev_backend": {
+    "session_name": "demo-backend",
+    "window_backend": [
+      { "repo": "demo-api", "cmd": "npm run dev" }
+    ],
+    "window_service": []
+  }
+}

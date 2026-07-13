@@ -157,6 +157,8 @@ enum OpSub {
     Diff {
         preset: String,
         service: Option<String>,
+        #[arg(long)]
+        no_color: bool,
     },
     List {
         service: Option<String>,
@@ -234,9 +236,11 @@ fn main() {
             } => presets.iter().try_fold((), |_, p| {
                 cmd::op_sync::run_pull(p, service.as_deref(), &settings, *dry_run)
             }),
-            OpSub::Diff { preset, service } => {
-                cmd::op_sync::run_diff(preset, service.as_deref(), &settings)
-            }
+            OpSub::Diff {
+                preset,
+                service,
+                no_color,
+            } => cmd::op_sync::run_diff(preset, service.as_deref(), &settings, *no_color),
             OpSub::List { service } => cmd::op_sync::run_list(service.as_deref(), &settings),
             OpSub::InitVault => cmd::op_sync::run_init_vault(&settings),
             OpSub::NewPreset => cmd::op_sync::run_new_preset(&settings),

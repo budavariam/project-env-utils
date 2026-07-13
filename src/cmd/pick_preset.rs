@@ -300,6 +300,7 @@ mod tests {
             secret_backend: SB::None,
             op_vault: String::new(),
             session_mux: crate::config::SessionMultiplexer::Tmux,
+            color_diff: true,
             project: Default::default(),
         }
     }

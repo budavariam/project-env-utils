@@ -1,0 +1,4 @@
+{
+  "$schema": "../../settings.local.schema.json",
+  "secret_backend": "sqlite"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "demo-api",
+  "version": "0.1.0",
+  "description": "Demo backend API service",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  }
+}
