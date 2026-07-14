@@ -71,12 +71,20 @@ pub fn stash_and_checkout(repo_dir: &Path, branch: &str) -> Result<bool> {
         .output()
         .context("git checkout failed")?;
     if !checkout.status.success() {
-        bail!(
-            "git checkout '{}' failed in {}: {}",
-            branch,
-            repo_dir.display(),
-            String::from_utf8_lossy(&checkout.stderr).trim()
-        );
+        // Branch may not exist locally — try creating it.
+        let create = Command::new("git")
+            .args(["-C", &repo_s, "checkout", "-b", branch])
+            .output()
+            .context("git checkout -b failed")?;
+        if !create.status.success() {
+            bail!(
+                "git checkout '{}' failed in {}: {}",
+                branch,
+                repo_dir.display(),
+                String::from_utf8_lossy(&create.stderr).trim()
+            );
+        }
+        eprintln!("  {} — created new branch '{}'", repo_dir.display(), branch);
     }
 
     Ok(has_changes)
@@ -156,6 +164,9 @@ pub fn pick_session_fzf(choices: &[String]) -> Result<String> {
 }
 
 /// Pick a branch interactively using fzf.
+/// Existing branches are listed for selection; typing a new name and pressing
+/// Enter creates it (the caller is responsible for the actual `git checkout -b`
+/// or `git worktree add -b`).
 pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
     let repo_s = repo_dir.to_string_lossy();
     let git_out = Command::new("git")
@@ -165,7 +176,7 @@ pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
     let branch_list = String::from_utf8_lossy(&git_out.stdout).into_owned();
 
     let mut fzf = Command::new("fzf")
-        .args(["--prompt=Branch: "])
+        .args(["--print-query", "--prompt=Branch (new or existing): "])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -176,11 +187,20 @@ pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
     }
 
     let fzf_out = fzf.wait_with_output().context("fzf failed")?;
-    let selected = String::from_utf8_lossy(&fzf_out.stdout).trim().to_string();
-    if selected.is_empty() {
+    let stdout = String::from_utf8_lossy(&fzf_out.stdout);
+    let mut lines = stdout.lines();
+    let query = lines.next().unwrap_or("").trim().to_string();
+    let selection = lines.next().unwrap_or("").trim().to_string();
+
+    // Prefer the selected item; fall back to whatever the user typed (new branch).
+    let branch = if !selection.is_empty() {
+        selection
+    } else if !query.is_empty() {
+        query
+    } else {
         bail!("No branch selected.");
-    }
-    Ok(selected)
+    };
+    Ok(branch)
 }
 
 /// Pick an existing worktree from `{repo}/.claude/worktrees/` using fzf.
@@ -265,8 +285,7 @@ pub fn ensure_worktree(repo_dir: &Path, branch: &str) -> Result<PathBuf> {
 
     // Branch already checked out somewhere — find that path via worktree list.
     if let Some(existing) = find_worktree_for_branch(repo_dir, branch)? {
-        // If the existing checkout is the main repo itself, refuse to use it —
-        // the whole point of worktrees is to leave the main repo free for manual branch switching.
+        // If the existing checkout is the main repo itself, refuse to use it.
         if existing == repo_dir {
             bail!(
                 "Branch '{}' is checked out in the main repo ({}). \
@@ -281,6 +300,20 @@ pub fn ensure_worktree(repo_dir: &Path, branch: &str) -> Result<PathBuf> {
             existing.display()
         );
         return Ok(existing);
+    }
+
+    // Branch doesn't exist locally — create it in the worktree.
+    let create = Command::new("git")
+        .args(["-C", &repo_s, "worktree", "add", "-b", branch, &wt_s])
+        .output()
+        .context("git worktree add -b failed")?;
+    if create.status.success() {
+        eprintln!(
+            "Created new branch '{}' in worktree: {}",
+            branch,
+            wt.display()
+        );
+        return Ok(wt);
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
