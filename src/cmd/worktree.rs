@@ -44,6 +44,16 @@ pub fn stash_and_checkout(repo_dir: &Path, branch: &str) -> Result<bool> {
     let has_changes = !status.stdout.is_empty();
 
     if has_changes {
+        let from_branch = current_branch(repo_dir).unwrap_or_else(|_| "unknown".to_string());
+        let timestamp = Command::new("date")
+            .arg("+%Y-%m-%d %H:%M:%S")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_default();
+        let timestamp = timestamp.trim();
+        let stash_label = format!("penv: {} @ {}", from_branch, timestamp);
+
         let changed_files: Vec<&str> = status
             .stdout
             .split(|&b| b == b'\n')
@@ -66,7 +76,7 @@ pub fn stash_and_checkout(repo_dir: &Path, branch: &str) -> Result<bool> {
                 "push",
                 "--include-untracked",
                 "-m",
-                "penv auto-stash before checkout",
+                &stash_label,
             ])
             .output()
             .context("git stash failed")?;
