@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use crate::backend::SecretBackend;
-use crate::cmd::sync::unified_diff;
+use crate::cmd::sync::{resolve_use_color, unified_diff};
 use crate::config::{backups_dir, fallback_profile_path, repo_root, Settings};
 use crate::env_file::{days_to_ymd, read_file, write_file};
 use crate::state::{all_tracked_services, all_tracked_workspaces, State};
@@ -121,8 +121,8 @@ fn menu(options: &[(&str, &str)], default_key: &str) -> String {
     }
 }
 
-fn show_diff(local: &str, remote: &str, from_label: &str, to_label: &str) {
-    let diff = unified_diff(remote, local, from_label, to_label, 60, false);
+fn show_diff(local: &str, remote: &str, from_label: &str, to_label: &str, use_color: bool) {
+    let diff = unified_diff(remote, local, from_label, to_label, 60, use_color);
     if diff.lines().all(|l| {
         l.starts_with(' ') || l.starts_with('-') || l.starts_with('+') || l.starts_with('@')
     }) {
@@ -263,6 +263,7 @@ fn handle(
                             pl,
                             &format!("current {service}/.env"),
                             &format!("local/{service}.{preset}.env"),
+                            resolve_use_color(settings, false),
                         );
                         choice = menu(&opt_strs, "r");
                     }
@@ -465,6 +466,7 @@ fn handle(
                         b.key_display(service, preset)
                     ),
                     &format!("local/{service}/.env"),
+                    resolve_use_color(settings, false),
                 );
                 choice = menu(opts, "s");
             }
@@ -576,7 +578,7 @@ pub fn startup_sync_check(
                 ];
                 let mut choice = menu(opts, default);
                 while choice == "d" {
-                    show_diff(loc, rem, &from_label, &to_label);
+                    show_diff(loc, rem, &from_label, &to_label, resolve_use_color(settings, false));
                     choice = menu(opts, default);
                 }
                 if choice == "p" {
@@ -789,6 +791,7 @@ fn check_one_quiet(
                         r,
                         &format!("current {}/{}", service, label),
                         &ref_label,
+                        resolve_use_color(settings, false),
                     );
                     choice = menu(&opt_strs, "r");
                 }

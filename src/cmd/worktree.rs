@@ -268,9 +268,14 @@ pub fn write_close_session_script(
         .map(|s| format!("'{}' load-env '{}' '{}'", penv, preset, s))
         .collect::<Vec<_>>()
         .join(" && ");
+    let change_preset_cmd = services
+        .iter()
+        .map(|s| format!("'{}'", s))
+        .collect::<Vec<_>>()
+        .join(" ");
     let content = format!(
-        "reload_env() {{ {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\necho \"Run reload_env to reload .env from preset '{}', or close_session to close the session.\"\n",
-        reload_cmd, session, show_info_cmd, penv, preset, preset
+        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\necho \"Run reload_env to reload .env, change_preset to switch preset, or close_session to close the session.\"\n",
+        reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset
     );
     std::fs::write(path, content)
         .with_context(|| format!("failed to write helper script to {}", path))?;
@@ -331,7 +336,16 @@ pub fn write_teardown_script(
         .map(|s| format!("'{}' load-env '{}' '{}'", penv, preset, s))
         .collect::<Vec<_>>()
         .join(" && ");
+    let change_preset_services = services
+        .iter()
+        .map(|s| format!("'{}'", s))
+        .collect::<Vec<_>>()
+        .join(" ");
     lines.push(format!("reload_env() {{ {}; }}\n", reload_cmd));
+    lines.push(format!(
+        "change_preset() {{ '{}' change-preset {}; }}\n",
+        penv, change_preset_services
+    ));
     lines.push(format!("show_info() {{ {}; }}\n", show_info_cmd));
     lines.push(format!(
         "inspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n",
@@ -339,7 +353,7 @@ pub fn write_teardown_script(
     ));
     lines.push(
         format!(
-            "echo \"Run teardown to remove worktrees & close session, reload_env to reload .env from preset '{}', or close_session to just close it.\"\n",
+            "echo \"Run teardown to remove worktrees & close session, reload_env to reload .env from preset '{}', change_preset to switch preset, or close_session to just close it.\"\n",
             preset
         )
     );

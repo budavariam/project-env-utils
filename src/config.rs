@@ -283,30 +283,32 @@ impl ProjectConfig {
         repo_parent().join(service).join(custom.unwrap_or(".env"))
     }
 
-    /// `local/<project_name>/<service>.<preset>.env` — preset-specific local fallback (gitignored).
+    /// `local/<project_name>/<service>/<preset>.env` — preset-specific local fallback (gitignored).
     pub fn preset_local_path(&self, service: &str, preset: &str) -> std::path::PathBuf {
         repo_root()
             .join("local")
             .join(&self.project_name)
-            .join(format!("{}.{}.env", service, preset))
+            .join(service)
+            .join(format!("{}.env", preset))
     }
 
-    /// `local/<project_name>/<service>.env` — generic local fallback (gitignored, has secrets).
+    /// `local/<project_name>/<service>/local.env` — generic local fallback (gitignored, has secrets).
     pub fn local_fallback_path(&self, service: &str) -> std::path::PathBuf {
         repo_root()
             .join("local")
             .join(&self.project_name)
-            .join(format!("{}.env", service))
+            .join(service)
+            .join("local.env")
     }
 
     /// Relative display path for the preset local cache (for user-facing messages).
     pub fn preset_local_rel(&self, service: &str, preset: &str) -> String {
-        format!("local/{}/{}.{}.env", self.project_name, service, preset)
+        format!("local/{}/{}/{}.env", self.project_name, service, preset)
     }
 
     /// Relative display path for the generic local fallback (for user-facing messages).
     pub fn local_fallback_rel(&self, service: &str) -> String {
-        format!("local/{}/{}.env", self.project_name, service)
+        format!("local/{}/{}/local.env", self.project_name, service)
     }
 
     /// Destination path for a managed file inside the service repo.
@@ -316,25 +318,29 @@ impl ProjectConfig {
 
     /// Local cache path for a managed file (gitignored).
     ///
-    /// Shared files: `local/<project>/<service>/files/<label>`
-    /// Preset-specific files: `local/<project>/<service>/files/<preset>.<label>`
+    /// Shared files:         `local/<project>/shared/<label>`
+    /// Service-specific:     `local/<project>/<service>/<label>`
+    /// Preset-specific:      `local/<project>/<service>/<preset>.<label>`
     pub fn file_local_cache(
         &self,
         service: &str,
         file_cfg: &SecretFileConfig,
         preset: &str,
     ) -> PathBuf {
-        let name = if file_cfg.shared {
-            file_cfg.label.clone()
+        if file_cfg.shared {
+            repo_root()
+                .join("local")
+                .join(&self.project_name)
+                .join("shared")
+                .join(&file_cfg.label)
         } else {
-            format!("{}.{}", preset, file_cfg.label)
-        };
-        repo_root()
-            .join("local")
-            .join(&self.project_name)
-            .join(service)
-            .join("files")
-            .join(name)
+            let name = format!("{}.{}", preset, file_cfg.label);
+            repo_root()
+                .join("local")
+                .join(&self.project_name)
+                .join(service)
+                .join(name)
+        }
     }
 }
 
@@ -346,16 +352,30 @@ pub fn fallback_profile_path(service: &str, preset: &str) -> PathBuf {
         .join(format!("{}.env", preset))
 }
 
-/// List available preset names for a service from `env/<service>/`.
+/// List available preset names for a service from `local/<project>/<service>/`.
+/// Returns preset names (filenames without .env extension), excluding the generic "local" fallback.
 pub fn available_presets(service: &str) -> Vec<String> {
-    let dir = repo_root().join("env").join(service);
+    let project_name = Settings::load()
+        .map(|s| s.project.project_name.clone())
+        .unwrap_or_default();
+    if project_name.is_empty() {
+        return Vec::new();
+    }
+    available_presets_for_project(service, &project_name)
+}
+
+/// List available preset names for a service from `local/<project>/<service>/`.
+pub fn available_presets_for_project(service: &str, project_name: &str) -> Vec<String> {
+    let dir = repo_root().join("local").join(project_name).join(service);
     let mut presets = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("env") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    presets.push(stem.to_string());
+                    if stem != "local" {
+                        presets.push(stem.to_string());
+                    }
                 }
             }
         }
@@ -516,21 +536,20 @@ mod tests {
 
     #[test]
     fn available_presets_returns_sorted_stems() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use std::fs;
         let base = tempfile::tempdir().unwrap();
-        // repo_root = base/tool, env/ now lives inside repo_root
         let repo_root_dir = base.path().join("tool");
         fs::create_dir_all(&repo_root_dir).unwrap();
-        let env_dir = repo_root_dir.join("env").join("my-service");
-        fs::create_dir_all(&env_dir).unwrap();
-        fs::write(env_dir.join("uat.env"), "").unwrap();
-        fs::write(env_dir.join("test.env"), "").unwrap();
-        fs::write(env_dir.join("dev.env"), "").unwrap();
-        fs::write(env_dir.join("README.md"), "").unwrap();
+        let local_dir = repo_root_dir.join("local").join("MyProject").join("my-service");
+        fs::create_dir_all(&local_dir).unwrap();
+        fs::write(local_dir.join("uat.env"), "").unwrap();
+        fs::write(local_dir.join("test.env"), "").unwrap();
+        fs::write(local_dir.join("dev.env"), "").unwrap();
+        fs::write(local_dir.join("local.env"), "").unwrap(); // generic fallback — excluded
+        fs::write(local_dir.join("README.md"), "").unwrap(); // non-.env — excluded
 
         std::env::set_var("PENV_REPO_ROOT", repo_root_dir.to_str().unwrap());
-        let presets = available_presets("my-service");
+        let presets = available_presets_for_project("my-service", "MyProject");
         std::env::remove_var("PENV_REPO_ROOT");
 
         assert_eq!(presets, vec!["dev", "test", "uat"]);
