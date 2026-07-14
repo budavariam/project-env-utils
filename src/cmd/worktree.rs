@@ -399,7 +399,7 @@ pub fn write_close_session_script(
         .collect::<Vec<_>>()
         .join(" ");
     let content = format!(
-        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\necho \"Run reload_env to reload .env, change_preset to switch preset, or close_session to close the session.\"\n",
+        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n",
         reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset
     );
     std::fs::write(path, content)
@@ -476,12 +476,6 @@ pub fn write_teardown_script(
         "inspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n",
         penv, preset
     ));
-    lines.push(
-        format!(
-            "echo \"Run teardown to remove worktrees & close session, reload_env to reload .env from preset '{}', change_preset to switch preset, or close_session to just close it.\"\n",
-            preset
-        )
-    );
 
     let content = lines.concat();
     std::fs::write(path, content)

@@ -164,6 +164,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             "'{}' show-info --preset '{}' --workspace '{}' --notes \
              'teardown      — remove worktree & close session' \
              'reload_env    — reload .env from current preset' \
+             'change_preset — switch preset' \
              'close_session — close session only' \
              'show_info     — re-display this box' \
              'inspect_env   — inspect env file ages' ||:",
@@ -191,6 +192,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
         let show_info_fn_cmd = format!(
             "'{}' show-info --preset '{}' --workspace '{}' --notes \
              'reload_env    — reload .env from current preset' \
+             'change_preset — switch preset' \
              'close_session — close session' \
              'show_info     — re-display this box' \
              'inspect_env   — inspect env file ages' ||:",
