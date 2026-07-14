@@ -3,11 +3,83 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// Replace '/' with '_' in a branch name so it is safe in paths and session names.
 pub fn branch_to_safe(branch: &str) -> String {
     branch.replace('/', "_")
+}
+
+/// Return the currently checked-out branch name for `repo_dir`.
+pub fn current_branch(repo_dir: &Path) -> Result<String> {
+    let out = Command::new("git")
+        .args([
+            "-C",
+            &repo_dir.to_string_lossy(),
+            "symbolic-ref",
+            "--short",
+            "HEAD",
+        ])
+        .output()
+        .context("git symbolic-ref failed")?;
+    if !out.status.success() {
+        bail!(
+            "Could not determine current branch in {}",
+            repo_dir.display()
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Stash uncommitted changes (if any) and checkout `branch` in `repo_dir`.
+/// Returns `true` if a stash was created.
+pub fn stash_and_checkout(repo_dir: &Path, branch: &str) -> Result<bool> {
+    let repo_s = repo_dir.to_string_lossy();
+
+    // Check for uncommitted changes.
+    let status = Command::new("git")
+        .args(["-C", &repo_s, "status", "--porcelain"])
+        .output()
+        .context("git status failed")?;
+    let has_changes = !status.stdout.is_empty();
+
+    if has_changes {
+        eprintln!("  {} — stashing uncommitted changes...", repo_dir.display());
+        let stash = Command::new("git")
+            .args([
+                "-C",
+                &repo_s,
+                "stash",
+                "push",
+                "--include-untracked",
+                "-m",
+                "penv auto-stash before checkout",
+            ])
+            .output()
+            .context("git stash failed")?;
+        if !stash.status.success() {
+            bail!(
+                "git stash failed in {}: {}",
+                repo_dir.display(),
+                String::from_utf8_lossy(&stash.stderr).trim()
+            );
+        }
+    }
+
+    let checkout = Command::new("git")
+        .args(["-C", &repo_s, "checkout", branch])
+        .output()
+        .context("git checkout failed")?;
+    if !checkout.status.success() {
+        bail!(
+            "git checkout '{}' failed in {}: {}",
+            branch,
+            repo_dir.display(),
+            String::from_utf8_lossy(&checkout.stderr).trim()
+        );
+    }
+
+    Ok(has_changes)
 }
 
 /// Standard worktree path for a branch inside a repo.
@@ -48,11 +120,7 @@ pub fn pick_worktree_wtf(repo_dir: &Path) -> Result<(PathBuf, String)> {
         .ok()
         .and_then(|o| {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
+            if s.is_empty() { None } else { Some(s) }
         })
         .unwrap_or_else(|| {
             dir.file_name()
@@ -121,7 +189,7 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
     let wt_base = repo_dir.join(".claude").join("worktrees");
     if !wt_base.exists() {
         bail!(
-            "No worktrees found in {}. Use --select to create one.",
+            "No worktrees found in {}. Use --checkout-worktree to create one.",
             wt_base.display()
         );
     }
@@ -136,7 +204,7 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
 
     if entries.is_empty() {
         bail!(
-            "No worktrees found in {}. Use --select to create one.",
+            "No worktrees found in {}. Use --checkout-worktree to create one.",
             wt_base.display()
         );
     }
@@ -166,11 +234,7 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
         .ok()
         .and_then(|o| {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
+            if s.is_empty() { None } else { Some(s) }
         })
         .unwrap_or(selected);
 

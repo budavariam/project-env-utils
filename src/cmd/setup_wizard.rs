@@ -8,7 +8,7 @@ use std::io::{self, BufRead, Write};
 use anyhow::Result;
 
 use crate::backend::onepassword::OpBackend;
-use crate::config::{project_config_file, repo_root, settings_file, Settings};
+use crate::config::{Settings, project_config_file, repo_root, settings_file};
 
 // ── I/O helpers ────────────────────────────────────────────────────────────
 
@@ -45,11 +45,7 @@ fn ask(prompt: &str, default: &str) -> String {
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let v = l.trim().to_string();
-            if v.is_empty() {
-                default.to_string()
-            } else {
-                v
-            }
+            if v.is_empty() { default.to_string() } else { v }
         }
         _ => default.to_string(),
     }
@@ -369,7 +365,7 @@ mod tests {
     fn write_local_settings_creates_file_with_backend_and_vault() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
 
         write_local_settings(serde_json::json!({
             "secret_backend": "onepassword",
@@ -382,14 +378,14 @@ mod tests {
         assert_eq!(v["secret_backend"], "onepassword");
         assert_eq!(v["onepassword_vault"], "My Vault");
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
     }
 
     #[test]
     fn write_local_settings_merges_without_overwriting_other_keys() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
 
         // Pre-populate with an existing key
         std::fs::write(
@@ -409,6 +405,6 @@ mod tests {
         // Existing keys must be preserved
         assert_eq!(v["other_key"], true);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
     }
 }

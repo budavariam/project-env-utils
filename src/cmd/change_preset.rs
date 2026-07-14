@@ -6,7 +6,7 @@ use std::io::{self, Write};
 
 use anyhow::Result;
 
-use crate::config::{available_presets_for_project, Settings};
+use crate::config::{Settings, available_presets_for_project};
 
 pub fn run(services: &[String], settings: &Settings) -> Result<()> {
     let project_name = &settings.project.project_name;
@@ -67,10 +67,11 @@ pub fn run(services: &[String], settings: &Settings) -> Result<()> {
         let mut line = String::new();
         io::stdin().read_line(&mut line)?;
         let trimmed = line.trim();
-        if let Ok(n) = trimmed.parse::<usize>() {
-            if n >= 1 && n <= presets.len() {
-                break presets[n - 1].clone();
-            }
+        if let Ok(n) = trimmed.parse::<usize>()
+            && n >= 1
+            && n <= presets.len()
+        {
+            break presets[n - 1].clone();
         }
         // Also accept typing the preset name directly.
         if presets.contains(&trimmed.to_string()) {

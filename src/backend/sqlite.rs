@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use super::SecretBackend;
 use crate::config::repo_root;
@@ -173,7 +173,7 @@ mod tests {
     fn sqlite_backend_push_fetch_delete() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
 
         let db_path = dir.path().join("test.db");
         let b = SqliteBackend::new(db_path, "myproject");
@@ -195,14 +195,14 @@ mod tests {
         assert!(deleted);
         assert!(!b.exists("svc-a", "test"));
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
     }
 
     #[test]
     fn sqlite_backend_project_isolation() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
 
         let db_path = dir.path().join("test.db");
         let b1 = SqliteBackend::new(db_path.clone(), "project-a");
@@ -216,14 +216,14 @@ mod tests {
         assert_eq!(b1.list().len(), 1);
         assert_eq!(b2.list().len(), 1);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
     }
 
     #[test]
     fn sqlite_backend_updated_at_set() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
 
         let db_path = dir.path().join("test.db");
         let b = SqliteBackend::new(db_path, "myproject");
@@ -232,6 +232,6 @@ mod tests {
         assert!(ts.ends_with('Z'), "should be ISO UTC: {}", ts);
         assert!(ts.len() >= 20, "should be full ISO datetime: {}", ts);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
     }
 }

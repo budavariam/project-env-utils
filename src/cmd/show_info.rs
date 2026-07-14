@@ -25,10 +25,10 @@ fn content_row(text: &str) -> Row {
 fn service_rows(env_vars: &[String], env: &HashMap<String, String>, label: &str) -> Vec<Row> {
     let mut rows: Vec<Row> = vec![None, content_row(&format!("  {}", label))];
     for key in env_vars {
-        if let Some(val) = env.get(key) {
-            if !val.is_empty() {
-                rows.push(content_row(&format!("  {}={}", key, val)));
-            }
+        if let Some(val) = env.get(key)
+            && !val.is_empty()
+        {
+            rows.push(content_row(&format!("  {}={}", key, val)));
         }
     }
     rows
@@ -166,22 +166,22 @@ pub fn run(
         rows.extend(service_rows(&env_vars, &env, &label));
     }
 
-    if let Some(msg) = message {
-        if !msg.is_empty() {
-            let content_width = INNER - 2;
-            rows.push(None);
-            for line in word_wrap(msg, content_width) {
-                rows.push(content_row(&format!("  {}", line)));
-            }
+    if let Some(msg) = message
+        && !msg.is_empty()
+    {
+        let content_width = INNER - 2;
+        rows.push(None);
+        for line in word_wrap(msg, content_width) {
+            rows.push(content_row(&format!("  {}", line)));
         }
     }
 
-    if let Some(note_lines) = notes {
-        if !note_lines.is_empty() {
-            rows.push(None);
-            for line in note_lines {
-                rows.push(content_row(&format!("  {}", line)));
-            }
+    if let Some(note_lines) = notes
+        && !note_lines.is_empty()
+    {
+        rows.push(None);
+        for line in note_lines {
+            rows.push(content_row(&format!("  {}", line)));
         }
     }
 
@@ -211,8 +211,7 @@ mod tests {
     #[test]
     fn word_wrap_deploy_message_fits_box() {
         let content_width = BOX_WIDTH - 4; // INNER - 2
-        let msg =
-            "To deploy, run: git subtree pull --prefix  project feat/multi-tenant --squash";
+        let msg = "To deploy, run: git subtree pull --prefix  project feat/multi-tenant --squash";
         let lines = word_wrap(msg, content_width);
         assert!(lines.len() > 1, "long message should wrap");
         for line in &lines {
@@ -289,12 +288,16 @@ mod tests {
         assert!(rows[0].is_none()); // divider
         assert!(rows[1].as_ref().unwrap().contains("my-service"));
         let content: Vec<_> = rows[2..].iter().filter_map(|r| r.as_ref()).collect();
-        assert!(content
-            .iter()
-            .any(|r| r.contains("NODE_ENV") && r.contains("test")));
-        assert!(content
-            .iter()
-            .any(|r| r.contains("POSTGRES_HOST") && r.contains("localhost")));
+        assert!(
+            content
+                .iter()
+                .any(|r| r.contains("NODE_ENV") && r.contains("test"))
+        );
+        assert!(
+            content
+                .iter()
+                .any(|r| r.contains("POSTGRES_HOST") && r.contains("localhost"))
+        );
     }
 
     #[test]

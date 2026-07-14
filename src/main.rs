@@ -12,9 +12,19 @@ mod tmux;
 pub mod test_utils {
     use std::sync::Mutex;
     /// Single process-wide lock for tests that mutate PENV_REPO_ROOT.
-    /// All modules must acquire THIS lock, not their own copy, so that tests
-    /// from different modules don't race when running in parallel.
     pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Set PENV_REPO_ROOT in tests. Safe because all tests hold ENV_LOCK.
+    pub fn set_repo_root(path: &str) {
+        // SAFETY: tests serialize env mutation via ENV_LOCK.
+        unsafe { std::env::set_var("PENV_REPO_ROOT", path) }
+    }
+
+    /// Remove PENV_REPO_ROOT after a test.
+    pub fn clear_repo_root() {
+        // SAFETY: tests serialize env mutation via ENV_LOCK.
+        unsafe { std::env::remove_var("PENV_REPO_ROOT") }
+    }
 }
 
 use clap::{Parser, Subcommand};
@@ -73,16 +83,29 @@ enum Command {
     /// Interactive start-of-day sync check
     MorningCheck,
 
+    /// Interactively switch to a different preset and reload .env files
+    ChangePreset {
+        /// Services to reload (defaults to all configured services)
+        #[arg(num_args = 0..)]
+        services: Vec<String>,
+    },
+
     /// Launch the ui tmux dev session
     DevUi {
         #[arg(long)]
         preset: Option<String>,
+        /// Open the session in an existing Claude worktree
+        #[arg(long, group = "mode")]
+        worktree: bool,
+        /// Checkout a branch in the root repo (stash first), open session there
+        #[arg(long, group = "mode")]
+        checkout: bool,
+        /// Checkout a branch into a new/existing Claude worktree
+        #[arg(long, group = "mode")]
+        checkout_worktree: bool,
+        /// Branch for --checkout or --checkout-worktree (prompts if omitted)
         #[arg(long)]
-        select: bool,
-        #[arg(long)]
-        resume: bool,
-        #[arg(requires = "resume")]
-        resume_branch: Option<String>,
+        branch: Option<String>,
         /// Attach to an existing dev-ui session instead of creating a new one
         #[arg(long)]
         attach: bool,
@@ -101,15 +124,18 @@ enum Command {
     DevBackend {
         #[arg(long)]
         preset: Option<String>,
-        /// Pick an existing branch via fzf
+        /// Open the session in an existing Claude worktree
+        #[arg(long, group = "mode")]
+        worktree: bool,
+        /// Checkout a branch in the root repos (stash first), open session there
+        #[arg(long, group = "mode")]
+        checkout: bool,
+        /// Checkout a branch into a new/existing Claude worktrees
+        #[arg(long, group = "mode")]
+        checkout_worktree: bool,
+        /// Branch for --checkout or --checkout-worktree (prompts if omitted)
         #[arg(long)]
-        select: bool,
-        /// Resume (or create) a worktree at the given branch
-        #[arg(long)]
-        resume: bool,
-        /// Branch name for --resume (optional, prompts if omitted)
-        #[arg(requires = "resume")]
-        resume_branch: Option<String>,
+        branch: Option<String>,
         /// Attach to an existing dev-backend session instead of creating a new one
         #[arg(long)]
         attach: bool,
@@ -175,7 +201,8 @@ fn main() {
     // Apply --config / PENV_REPO_ROOT before loading settings so all path
     // helpers in config.rs see the override via the env var.
     if let Some(ref dir) = cli.config {
-        std::env::set_var("PENV_REPO_ROOT", dir);
+        // SAFETY: single-threaded startup; no other threads read PENV_REPO_ROOT yet.
+        unsafe { std::env::set_var("PENV_REPO_ROOT", dir) };
     }
 
     let settings = config::Settings::load().unwrap_or_else(|e| {
@@ -248,6 +275,8 @@ fn main() {
 
         Command::MorningCheck => cmd::morning_check::run(&settings),
 
+        Command::ChangePreset { services } => cmd::change_preset::run(services, &settings),
+
         Command::Init => cmd::init::run(),
 
         Command::SetupWizard => cmd::setup_wizard::run(&settings),
@@ -256,16 +285,23 @@ fn main() {
 
         Command::DevUi {
             preset,
-            select,
-            resume,
-            resume_branch,
+            worktree,
+            checkout,
+            checkout_worktree,
+            branch,
             attach,
         } => cmd::dev_ui::run(
             &cmd::dev_ui::DevUiArgs {
                 preset: preset.clone(),
-                select: *select,
-                resume: *resume,
-                resume_branch: resume_branch.clone(),
+                worktree: *worktree,
+                checkout: *checkout,
+                checkout_branch: if *checkout { branch.clone() } else { None },
+                checkout_worktree: *checkout_worktree,
+                checkout_worktree_branch: if *checkout_worktree {
+                    branch.clone()
+                } else {
+                    None
+                },
                 attach: *attach,
             },
             &settings,
@@ -273,16 +309,23 @@ fn main() {
 
         Command::DevBackend {
             preset,
-            select,
-            resume,
-            resume_branch,
+            worktree,
+            checkout,
+            checkout_worktree,
+            branch,
             attach,
         } => cmd::dev_backend::run(
             &cmd::dev_backend::DevBackendArgs {
                 preset: preset.clone(),
-                select: *select,
-                resume: *resume,
-                resume_branch: resume_branch.clone(),
+                worktree: *worktree,
+                checkout: *checkout,
+                checkout_branch: if *checkout { branch.clone() } else { None },
+                checkout_worktree: *checkout_worktree,
+                checkout_worktree_branch: if *checkout_worktree {
+                    branch.clone()
+                } else {
+                    None
+                },
                 attach: *attach,
             },
             &settings,

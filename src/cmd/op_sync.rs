@@ -3,8 +3,8 @@ use std::io::{self, BufRead, Write};
 
 use anyhow::Result;
 
-use crate::backend::onepassword::OpBackend;
 use crate::backend::SecretBackend;
+use crate::backend::onepassword::OpBackend;
 use crate::cmd::sync;
 use crate::config::Settings;
 
@@ -40,11 +40,7 @@ fn ask(prompt: &str, default: &str) -> String {
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let v = l.trim().to_string();
-            if v.is_empty() {
-                default.to_string()
-            } else {
-                v
-            }
+            if v.is_empty() { default.to_string() } else { v }
         }
         _ => default.to_string(),
     }

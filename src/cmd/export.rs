@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use crate::cmd::pick_preset::load_service_for_pick;
-use crate::config::{available_presets, repo_parent, Settings};
+use crate::config::{Settings, available_presets, repo_parent};
 use crate::env_file::write_file;
 use crate::state::{get_service_preset, set_service_preset};
 
@@ -24,11 +24,7 @@ fn ask(prompt: &str, default: &str) -> String {
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let v = l.trim().to_string();
-            if v.is_empty() {
-                default.to_string()
-            } else {
-                v
-            }
+            if v.is_empty() { default.to_string() } else { v }
         }
         _ => default.to_string(),
     }
@@ -61,10 +57,10 @@ fn print_divider() {
 
 /// Expand a leading `~` to the home directory.
 fn expand_tilde(p: &str) -> PathBuf {
-    if let Some(rest) = p.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
+    if let Some(rest) = p.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return PathBuf::from(home).join(rest);
     }
     PathBuf::from(p)
 }
@@ -245,21 +241,21 @@ pub fn run(settings: &Settings) -> Result<()> {
     }
 
     // ── Zip ────────────────────────────────────────────────────────────────
-    if let Some(ref zp) = zip_path {
-        if ok_count > 0 {
-            println!();
-            print!("  Zipping {} file(s)...", ok_count);
-            io::stdout().flush().ok();
-            match zip_dir(&dest_dir, zp) {
-                Ok(()) => {
-                    let size = std::fs::metadata(zp)
-                        .map(|m| format!("{} KB", m.len() / 1024))
-                        .unwrap_or_else(|_| "?".to_string());
-                    println!("  done  ({size})");
-                    println!("  ✓  {}", zp.display());
-                }
-                Err(e) => println!("  ✗  zip failed: {}", e),
+    if let Some(ref zp) = zip_path
+        && ok_count > 0
+    {
+        println!();
+        print!("  Zipping {} file(s)...", ok_count);
+        io::stdout().flush().ok();
+        match zip_dir(&dest_dir, zp) {
+            Ok(()) => {
+                let size = std::fs::metadata(zp)
+                    .map(|m| format!("{} KB", m.len() / 1024))
+                    .unwrap_or_else(|_| "?".to_string());
+                println!("  done  ({size})");
+                println!("  ✓  {}", zp.display());
             }
+            Err(e) => println!("  ✗  zip failed: {}", e),
         }
     }
 

@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::backend::SecretBackend;
-use crate::config::{available_presets, fallback_profile_path, Settings};
+use crate::config::{Settings, available_presets, fallback_profile_path};
 use crate::env_file::write_file;
 use crate::state::{
     get_service_preset, get_workspace_preset, set_service_preset, set_workspace_preset,
@@ -47,11 +47,7 @@ fn prompt_preset(label: &str, last: Option<&str>, available: &[String]) -> Strin
     match stdin.lock().lines().next() {
         Some(Ok(l)) => {
             let val = l.trim().to_string();
-            if val.is_empty() {
-                default
-            } else {
-                val
-            }
+            if val.is_empty() { default } else { val }
         }
         _ => {
             eprintln!();
@@ -103,56 +99,56 @@ pub fn load_service_for_pick(
     }
 
     let preset_local = settings.project.preset_local_path(service, preset);
-    if preset_local.exists() {
-        if let Ok(content) = std::fs::read_to_string(&preset_local) {
-            crate::backup::backup_env_before_write(
-                &label,
-                dest,
-                "load-service-for-pick",
-                &format!(
-                    "loading from local cache {}",
-                    settings.project.preset_local_rel(service, preset)
-                ),
-            );
-            if write_file(dest, &content).is_ok() {
-                return (true, format!("{} local", preset));
-            }
+    if preset_local.exists()
+        && let Ok(content) = std::fs::read_to_string(&preset_local)
+    {
+        crate::backup::backup_env_before_write(
+            &label,
+            dest,
+            "load-service-for-pick",
+            &format!(
+                "loading from local cache {}",
+                settings.project.preset_local_rel(service, preset)
+            ),
+        );
+        if write_file(dest, &content).is_ok() {
+            return (true, format!("{} local", preset));
         }
     }
 
     let fallback = settings.project.local_fallback_path(service);
-    if fallback.exists() {
-        if let Ok(content) = std::fs::read_to_string(&fallback) {
-            crate::backup::backup_env_before_write(
-                &label,
-                dest,
-                "load-service-for-pick",
-                &format!(
-                    "loading from generic local fallback {}",
-                    settings.project.local_fallback_rel(service)
-                ),
-            );
-            if write_file(dest, &content).is_ok() {
-                return (true, "local fallback (DB may not match preset)".to_string());
-            }
+    if fallback.exists()
+        && let Ok(content) = std::fs::read_to_string(&fallback)
+    {
+        crate::backup::backup_env_before_write(
+            &label,
+            dest,
+            "load-service-for-pick",
+            &format!(
+                "loading from generic local fallback {}",
+                settings.project.local_fallback_rel(service)
+            ),
+        );
+        if write_file(dest, &content).is_ok() {
+            return (true, "local fallback (DB may not match preset)".to_string());
         }
     }
 
     let profile = fallback_profile_path(service, preset);
-    if profile.exists() {
-        if let Ok(content) = std::fs::read_to_string(&profile) {
-            crate::backup::backup_env_before_write(
-                &label,
-                dest,
-                "load-service-for-pick",
-                &format!(
-                    "loading from git-tracked profile env/{}/{}.env",
-                    service, preset
-                ),
-            );
-            if write_file(dest, &content).is_ok() {
-                return (true, "profile (no secrets)".to_string());
-            }
+    if profile.exists()
+        && let Ok(content) = std::fs::read_to_string(&profile)
+    {
+        crate::backup::backup_env_before_write(
+            &label,
+            dest,
+            "load-service-for-pick",
+            &format!(
+                "loading from git-tracked profile env/{}/{}.env",
+                service, preset
+            ),
+        );
+        if write_file(dest, &content).is_ok() {
+            return (true, "profile (no secrets)".to_string());
         }
     }
 
@@ -339,13 +335,13 @@ mod tests {
     fn load_service_for_pick_returns_skip_when_repo_missing() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = tempfile::tempdir().unwrap();
-        std::env::set_var("PENV_REPO_ROOT", root.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(root.path().to_str().unwrap());
 
         let dest = root.path().join("nonexistent-dir").join(".env");
         let settings = no_backend_settings();
         let (ok, msg) = load_service_for_pick("svc-a", "test", &dest, None, &settings);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(!ok);
         assert!(msg.contains("not found"));

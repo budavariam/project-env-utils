@@ -9,7 +9,7 @@
 use anyhow::Result;
 
 use crate::backend::SecretBackend;
-use crate::config::{fallback_profile_path, SecretFileConfig, Settings};
+use crate::config::{SecretFileConfig, Settings, fallback_profile_path};
 use crate::env_file::write_file;
 use crate::state::set_service_preset;
 
@@ -110,78 +110,78 @@ fn load_service_env(
 
     // 2. Preset-specific local file
     let preset_local = settings.project.preset_local_path(service, preset);
-    if preset_local.exists() {
-        if let Ok(content) = std::fs::read_to_string(&preset_local) {
-            crate::backup::backup_env_before_write(
-                &format!("{}/{}", service, preset),
-                dest,
-                "load-env",
-                &format!(
-                    "load-env {}/{} from local cache {}",
-                    service,
-                    preset,
-                    settings.project.preset_local_rel(service, preset)
-                ),
-            );
-            if let Err(e) = write_file(dest, &content) {
-                eprintln!("  error writing {}: {}", service, e);
-                return false;
-            }
-            println!("  wrote {}/.env  ({} local)", service, preset);
-            return true;
+    if preset_local.exists()
+        && let Ok(content) = std::fs::read_to_string(&preset_local)
+    {
+        crate::backup::backup_env_before_write(
+            &format!("{}/{}", service, preset),
+            dest,
+            "load-env",
+            &format!(
+                "load-env {}/{} from local cache {}",
+                service,
+                preset,
+                settings.project.preset_local_rel(service, preset)
+            ),
+        );
+        if let Err(e) = write_file(dest, &content) {
+            eprintln!("  error writing {}: {}", service, e);
+            return false;
         }
+        println!("  wrote {}/.env  ({} local)", service, preset);
+        return true;
     }
 
     // 3. Generic local fallback
     let fallback = settings.project.local_fallback_path(service);
-    if fallback.exists() {
-        if let Ok(content) = std::fs::read_to_string(&fallback) {
-            crate::backup::backup_env_before_write(
-                &format!("{}/{}", service, preset),
-                dest,
-                "load-env",
-                &format!(
-                    "load-env {}/{} from generic local fallback {}",
-                    service,
-                    preset,
-                    settings.project.local_fallback_rel(service)
-                ),
-            );
-            if let Err(e) = write_file(dest, &content) {
-                eprintln!("  error writing {}: {}", service, e);
-                return false;
-            }
-            println!(
-                "  wrote {}/.env  (local fallback — DB config may not match preset '{}')",
-                service, preset
-            );
-            return true;
+    if fallback.exists()
+        && let Ok(content) = std::fs::read_to_string(&fallback)
+    {
+        crate::backup::backup_env_before_write(
+            &format!("{}/{}", service, preset),
+            dest,
+            "load-env",
+            &format!(
+                "load-env {}/{} from generic local fallback {}",
+                service,
+                preset,
+                settings.project.local_fallback_rel(service)
+            ),
+        );
+        if let Err(e) = write_file(dest, &content) {
+            eprintln!("  error writing {}: {}", service, e);
+            return false;
         }
+        println!(
+            "  wrote {}/.env  (local fallback — DB config may not match preset '{}')",
+            service, preset
+        );
+        return true;
     }
 
     // 4. Git-tracked profile
     let profile = fallback_profile_path(service, preset);
-    if profile.exists() {
-        if let Ok(content) = std::fs::read_to_string(&profile) {
-            crate::backup::backup_env_before_write(
-                &format!("{}/{}", service, preset),
-                dest,
-                "load-env",
-                &format!(
-                    "load-env {}/{} from git profile env/{}/{}.env",
-                    service, preset, service, preset
-                ),
-            );
-            if let Err(e) = write_file(dest, &content) {
-                eprintln!("  error writing {}: {}", service, e);
-                return false;
-            }
-            println!(
-                "  wrote {}/.env  (profile only — no secrets, see docs/onepassword-setup.md)",
-                service
-            );
-            return true;
+    if profile.exists()
+        && let Ok(content) = std::fs::read_to_string(&profile)
+    {
+        crate::backup::backup_env_before_write(
+            &format!("{}/{}", service, preset),
+            dest,
+            "load-env",
+            &format!(
+                "load-env {}/{} from git profile env/{}/{}.env",
+                service, preset, service, preset
+            ),
+        );
+        if let Err(e) = write_file(dest, &content) {
+            eprintln!("  error writing {}: {}", service, e);
+            return false;
         }
+        println!(
+            "  wrote {}/.env  (profile only — no secrets, see docs/onepassword-setup.md)",
+            service
+        );
+        return true;
     }
 
     println!(
@@ -203,61 +203,61 @@ fn load_service_file(
     let key = file_cfg.backend_key(preset);
 
     // 1. Secret backend
-    if let Some(b) = backend {
-        if let Some(content) = b.fetch_file(service, &key) {
-            if let Some(parent) = dest.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            crate::backup::backup_env_before_write(
-                &format!("{}/{}", service, file_cfg.label),
-                &dest,
-                "load-env",
-                &format!(
-                    "load-env {}/{} file {} from {}",
-                    service,
-                    preset,
-                    key,
-                    b.label()
-                ),
-            );
-            if let Err(e) = write_file(&dest, &content) {
-                eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);
-            } else {
-                println!(
-                    "  wrote {}/{}  ({}: {})",
-                    service,
-                    file_cfg.path,
-                    b.label(),
-                    key
-                );
-            }
-            return;
+    if let Some(b) = backend
+        && let Some(content) = b.fetch_file(service, &key)
+    {
+        if let Some(parent) = dest.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
+        crate::backup::backup_env_before_write(
+            &format!("{}/{}", service, file_cfg.label),
+            &dest,
+            "load-env",
+            &format!(
+                "load-env {}/{} file {} from {}",
+                service,
+                preset,
+                key,
+                b.label()
+            ),
+        );
+        if let Err(e) = write_file(&dest, &content) {
+            eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);
+        } else {
+            println!(
+                "  wrote {}/{}  ({}: {})",
+                service,
+                file_cfg.path,
+                b.label(),
+                key
+            );
+        }
+        return;
     }
 
     // 2. Local file cache
     let cache = settings.project.file_local_cache(service, file_cfg, preset);
-    if cache.exists() {
-        if let Ok(content) = std::fs::read_to_string(&cache) {
-            if let Some(parent) = dest.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            crate::backup::backup_env_before_write(
-                &format!("{}/{}", service, file_cfg.label),
-                &dest,
-                "load-env",
-                &format!(
-                    "load-env {}/{} file {} from local cache",
-                    service, preset, key
-                ),
-            );
-            if let Err(e) = write_file(&dest, &content) {
-                eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);
-            } else {
-                println!("  wrote {}/{}  (local cache)", service, file_cfg.path);
-            }
-            return;
+    if cache.exists()
+        && let Ok(content) = std::fs::read_to_string(&cache)
+    {
+        if let Some(parent) = dest.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
+        crate::backup::backup_env_before_write(
+            &format!("{}/{}", service, file_cfg.label),
+            &dest,
+            "load-env",
+            &format!(
+                "load-env {}/{} file {} from local cache",
+                service, preset, key
+            ),
+        );
+        if let Err(e) = write_file(&dest, &content) {
+            eprintln!("  error writing {}/{}: {}", service, file_cfg.label, e);
+        } else {
+            println!("  wrote {}/{}  (local cache)", service, file_cfg.path);
+        }
+        return;
     }
 
     println!(
@@ -343,7 +343,7 @@ mod tests {
         std::fs::create_dir_all(&local_dir).unwrap();
         std::fs::write(local_dir.join("my-api.env"), "FALLBACK=true\n").unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = FakeBackend {
             content: Some("FROM_BACKEND=1\n".to_string()),
@@ -352,7 +352,7 @@ mod tests {
         let settings = test_settings();
         let result = load_service(service, "test", Some(&backend), &settings);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(result, "load_service should succeed");
         let written = std::fs::read_to_string(svc_dir.join(".env")).unwrap();
@@ -365,14 +365,14 @@ mod tests {
         let service = "my-api";
         let (_base, root, parent, svc_dir) = setup_fixture(service);
 
-        let local_dir = root.join("local").join("test-proj");
+        let local_dir = root.join("local").join("test-proj").join(service);
         std::fs::create_dir_all(&local_dir).unwrap();
-        std::fs::write(local_dir.join("my-api.test.env"), "PRESET_LOCAL=1\n").unwrap();
+        std::fs::write(local_dir.join("test.env"), "PRESET_LOCAL=1\n").unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
         let settings = test_settings();
         let result = load_service(service, "test", None, &settings);
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(result);
         assert_eq!(
@@ -387,14 +387,14 @@ mod tests {
         let service = "my-api";
         let (_base, root, parent, svc_dir) = setup_fixture(service);
 
-        let local_dir = root.join("local").join("test-proj");
+        let local_dir = root.join("local").join("test-proj").join(service);
         std::fs::create_dir_all(&local_dir).unwrap();
-        std::fs::write(local_dir.join("my-api.env"), "GENERIC_LOCAL=1\n").unwrap();
+        std::fs::write(local_dir.join("local.env"), "GENERIC_LOCAL=1\n").unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
         let settings = test_settings();
         let result = load_service(service, "test", None, &settings);
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(result);
         assert_eq!(
@@ -413,10 +413,10 @@ mod tests {
         std::fs::create_dir_all(&profile_dir).unwrap();
         std::fs::write(profile_dir.join("test.env"), "PROFILE=1\n").unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
         let settings = test_settings();
         let result = load_service(service, "test", None, &settings);
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(result);
         assert_eq!(
@@ -430,9 +430,9 @@ mod tests {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let service = "my-api";
         let (_base, root, _parent, _svc_dir) = setup_fixture(service);
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
         let result = load_service(service, "test", None, &test_settings());
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
         assert!(!result);
     }
 
@@ -442,9 +442,9 @@ mod tests {
         let base = tempdir().unwrap();
         let root = base.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
         let result = load_service("my-api", "test", None, &test_settings());
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
         assert!(!result);
     }
 
@@ -458,7 +458,7 @@ mod tests {
         std::fs::create_dir_all(&profile_dir).unwrap();
         std::fs::write(profile_dir.join("test.env"), "FROM_PROFILE=1\n").unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = FakeBackend {
             content: None,
@@ -473,7 +473,7 @@ mod tests {
         };
         let result = load_service(service, "test", Some(&backend), &settings);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(result);
         assert_eq!(

@@ -371,12 +371,11 @@ pub fn available_presets_for_project(service: &str, project_name: &str) -> Vec<S
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("env") {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    if stem != "local" {
-                        presets.push(stem.to_string());
-                    }
-                }
+            if path.extension().and_then(|e| e.to_str()) == Some("env")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                && stem != "local"
+            {
+                presets.push(stem.to_string());
             }
         }
     }
@@ -540,7 +539,10 @@ mod tests {
         let base = tempfile::tempdir().unwrap();
         let repo_root_dir = base.path().join("tool");
         fs::create_dir_all(&repo_root_dir).unwrap();
-        let local_dir = repo_root_dir.join("local").join("MyProject").join("my-service");
+        let local_dir = repo_root_dir
+            .join("local")
+            .join("MyProject")
+            .join("my-service");
         fs::create_dir_all(&local_dir).unwrap();
         fs::write(local_dir.join("uat.env"), "").unwrap();
         fs::write(local_dir.join("test.env"), "").unwrap();
@@ -548,9 +550,9 @@ mod tests {
         fs::write(local_dir.join("local.env"), "").unwrap(); // generic fallback — excluded
         fs::write(local_dir.join("README.md"), "").unwrap(); // non-.env — excluded
 
-        std::env::set_var("PENV_REPO_ROOT", repo_root_dir.to_str().unwrap());
+        crate::test_utils::set_repo_root(repo_root_dir.to_str().unwrap());
         let presets = available_presets_for_project("my-service", "MyProject");
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert_eq!(presets, vec!["dev", "test", "uat"]);
     }
@@ -571,9 +573,9 @@ mod tests {
         )
         .unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
         let s = Settings::load().unwrap();
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert_eq!(s.secret_backend, SecretBackend::OnePassword);
         assert_eq!(s.op_vault, "My Vault");
@@ -583,9 +585,9 @@ mod tests {
     fn settings_no_file_returns_error() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
         let result = Settings::load();
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("settings.json not found"), "got: {}", msg);
@@ -603,9 +605,9 @@ mod tests {
         )
         .unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
         let s = Settings::load().unwrap();
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert_eq!(s.project.project_name, "Acme");
         assert_eq!(s.project.bucket, "acme-secrets");
@@ -628,9 +630,9 @@ mod tests {
         )
         .unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", dir.path().to_str().unwrap());
+        crate::test_utils::set_repo_root(dir.path().to_str().unwrap());
         let root = repo_root();
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert_eq!(root, dir.path());
     }

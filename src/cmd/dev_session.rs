@@ -3,11 +3,11 @@
 //! Launches a tmux session defined by the `sessions` array in settings.json.
 //! Each tab becomes one tmux window; panes are placed in at most a 2-column
 //! grid.  Grid positions not covered by a configured pane become idle shells.
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::cmd::pick_preset::resolve_backend_preset;
 use crate::cmd::worktree::write_close_session_script;
-use crate::config::{repo_parent, repo_root, Settings};
+use crate::config::{Settings, repo_parent, repo_root};
 use crate::env_file::sh_escape;
 use crate::tmux::{active_mux, setup_linked_window};
 

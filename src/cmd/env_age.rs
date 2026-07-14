@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use anyhow::Result;
 
 use crate::backend::SecretBackend;
-use crate::config::{repo_root, Settings};
+use crate::config::{Settings, repo_root};
 use crate::env_file::{days_to_ymd, read_file};
 
 // ── Time helpers ───────────────────────────────────────────────────────────────

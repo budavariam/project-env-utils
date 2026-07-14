@@ -10,9 +10,9 @@ use anyhow::Result;
 
 use crate::backend::SecretBackend;
 use crate::cmd::sync::{resolve_use_color, unified_diff};
-use crate::config::{backups_dir, fallback_profile_path, repo_root, Settings};
+use crate::config::{Settings, backups_dir, fallback_profile_path, repo_root};
 use crate::env_file::{days_to_ymd, read_file, write_file};
-use crate::state::{all_tracked_services, all_tracked_workspaces, State};
+use crate::state::{State, all_tracked_services, all_tracked_workspaces};
 
 // ── Backup session ─────────────────────────────────────────────────────────────
 
@@ -578,7 +578,13 @@ pub fn startup_sync_check(
                 ];
                 let mut choice = menu(opts, default);
                 while choice == "d" {
-                    show_diff(loc, rem, &from_label, &to_label, resolve_use_color(settings, false));
+                    show_diff(
+                        loc,
+                        rem,
+                        &from_label,
+                        &to_label,
+                        resolve_use_color(settings, false),
+                    );
                     choice = menu(opts, default);
                 }
                 if choice == "p" {

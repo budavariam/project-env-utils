@@ -543,13 +543,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&svc_dir).unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = RecordingBackend::with_entry("my-api", "test", "SECRET=pulled\n");
         let settings = test_settings_with_services(&["my-api"]);
         cmd_pull("test", None, backend.as_ref(), &settings, false);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         let content = std::fs::read_to_string(svc_dir.join(".env")).unwrap();
         assert_eq!(content, "SECRET=pulled\n");
@@ -564,13 +564,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&svc_dir).unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = RecordingBackend::with_entry("my-api", "test", "SECRET=pulled\n");
         let settings = test_settings_with_services(&["my-api"]);
         cmd_pull("test", None, backend.as_ref(), &settings, true);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(
             !svc_dir.join(".env").exists(),
@@ -587,13 +587,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&svc_dir).unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = Arc::new(RecordingBackend::default()); // empty store
         let settings = test_settings_with_services(&["my-api"]);
         cmd_pull("test", None, backend.as_ref(), &settings, false);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         assert!(!svc_dir.join(".env").exists());
     }
@@ -609,13 +609,13 @@ mod tests {
         setup_fs(dir.path(), "my-api", "A=1\n");
         setup_fs(dir.path(), "my-ui", "B=2\n");
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = Arc::new(RecordingBackend::default());
         let settings = test_settings_with_services(&["my-api", "my-ui"]);
         cmd_push("test", None, backend.as_ref(), &settings, false);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         let log = backend.push_log.lock().unwrap();
         assert_eq!(log.len(), 2);
@@ -631,13 +631,13 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         setup_fs(dir.path(), "my-api", "A=1\n");
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = Arc::new(RecordingBackend::default());
         let settings = test_settings_with_services(&["my-api"]);
         cmd_push("test", None, backend.as_ref(), &settings, true);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         let log = backend.push_log.lock().unwrap();
         assert!(log.is_empty(), "dry-run must not call backend.push()");
@@ -653,13 +653,13 @@ mod tests {
         setup_fs(dir.path(), "my-api", "A=1\n");
         std::fs::create_dir_all(dir.path().join("my-ui")).unwrap();
 
-        std::env::set_var("PENV_REPO_ROOT", root.to_str().unwrap());
+        crate::test_utils::set_repo_root(root.to_str().unwrap());
 
         let backend = Arc::new(RecordingBackend::default());
         let settings = test_settings_with_services(&["my-api", "my-ui"]);
         cmd_push("test", None, backend.as_ref(), &settings, false);
 
-        std::env::remove_var("PENV_REPO_ROOT");
+        crate::test_utils::clear_repo_root();
 
         let log = backend.push_log.lock().unwrap();
         assert_eq!(log.len(), 1);

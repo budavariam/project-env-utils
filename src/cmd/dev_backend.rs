@@ -1,17 +1,17 @@
-//! `penv dev-backend [--preset <name>] [--select] [--resume [<branch>]]`
+//! `penv dev-backend [--preset <name>] [--checkout [<branch>]] [--worktree] [--checkout-worktree [<branch>]]`
 //!
 //! Launches backend services in a dev session using the configured multiplexer.
 //! window_backend repos support worktrees; window_service repos always run from main.
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::cmd::pick_preset::{resolve_backend_preset, resolve_workspace_preset};
 use crate::cmd::worktree::{
-    branch_to_safe, ensure_worktree, pick_branch_fzf, pick_existing_worktree_fzf,
-    write_close_session_script, write_teardown_script,
+    branch_to_safe, current_branch, ensure_worktree, pick_branch_fzf, pick_existing_worktree_fzf,
+    stash_and_checkout, write_close_session_script, write_teardown_script,
 };
-use crate::config::{repo_parent, repo_root, Settings};
+use crate::config::{Settings, repo_parent, repo_root};
 use crate::env_file::sh_escape;
 use crate::tmux::{active_mux, setup_linked_window};
 
@@ -19,9 +19,14 @@ use crate::tmux::{active_mux, setup_linked_window};
 
 pub struct DevBackendArgs {
     pub preset: Option<String>,
-    pub select: bool,
-    pub resume: bool,
-    pub resume_branch: Option<String>,
+    /// Open the session in an existing Claude worktree (fzf picker).
+    pub worktree: bool,
+    /// Checkout a branch directly in the root repos (stash changes first).
+    pub checkout: bool,
+    pub checkout_branch: Option<String>,
+    /// Checkout a branch into a new/existing Claude worktree.
+    pub checkout_worktree: bool,
+    pub checkout_worktree_branch: Option<String>,
     pub attach: bool,
 }
 
@@ -51,22 +56,14 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         mux.attach(&target);
     }
 
-    // ── Resolve worktrees (when --select / --resume) ─────────────────────────
+    // ── Resolve workspace ────────────────────────────────────────────────────
 
-    let (backend_dirs, session, is_worktree) = if args.select || args.resume {
+    let (backend_dirs, session, is_worktree) = if args.worktree {
+        // --worktree: pick from existing Claude worktrees in the primary repo.
         let primary_repo = root.join(&cfg.window_backend[0].repo);
-        let branch = if args.resume {
-            args.resume_branch
-                .clone()
-                .map(Ok)
-                .unwrap_or_else(|| pick_existing_worktree_fzf(&primary_repo))?
-        } else {
-            pick_branch_fzf(&primary_repo)?
-        };
-
+        let branch = pick_existing_worktree_fzf(&primary_repo)?;
         let safe = branch_to_safe(&branch);
         let session = format!("{}_{}", cfg.session_name, safe);
-
         let mut dirs = Vec::new();
         for pane in &cfg.window_backend {
             let repo_dir = root.join(&pane.repo);
@@ -75,6 +72,56 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             dirs.push(wt);
         }
         (dirs, session, true)
+    } else if args.checkout_worktree {
+        // --checkout-worktree: create/reuse a Claude worktree for the branch.
+        // Error if the branch is currently checked out in the root repo.
+        let primary_repo = root.join(&cfg.window_backend[0].repo);
+        let branch = args
+            .checkout_worktree_branch
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| pick_branch_fzf(&primary_repo))?;
+
+        let root_branch = current_branch(&primary_repo).unwrap_or_default();
+        if root_branch == branch {
+            bail!(
+                "Branch '{}' is currently checked out in the root repo. \
+                 Use --checkout to open the session there instead.",
+                branch
+            );
+        }
+
+        let safe = branch_to_safe(&branch);
+        let session = format!("{}_{}", cfg.session_name, safe);
+        let mut dirs = Vec::new();
+        for pane in &cfg.window_backend {
+            let repo_dir = root.join(&pane.repo);
+            let wt = ensure_worktree(&repo_dir, &branch)?;
+            eprintln!("  {} → {} (branch: {})", pane.repo, wt.display(), branch);
+            dirs.push(wt);
+        }
+        (dirs, session, true)
+    } else if args.checkout {
+        // --checkout: stash changes if needed and checkout branch in the root repos.
+        let primary_repo = root.join(&cfg.window_backend[0].repo);
+        let branch = args
+            .checkout_branch
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| pick_branch_fzf(&primary_repo))?;
+
+        eprintln!("Checking out '{}' in backend repos...", branch);
+        for pane in &cfg.window_backend {
+            let repo_dir = root.join(&pane.repo);
+            stash_and_checkout(&repo_dir, &branch)?;
+        }
+
+        let dirs: Vec<PathBuf> = cfg
+            .window_backend
+            .iter()
+            .map(|p| root.join(&p.repo))
+            .collect();
+        (dirs, cfg.session_name.clone(), false)
     } else {
         let dirs: Vec<PathBuf> = cfg
             .window_backend

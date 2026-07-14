@@ -7,7 +7,7 @@
 ///   Item "my-ui"   → section "test" → field "env" = "..."
 ///                   → section "uat"  → field "env" = "..."
 ///   Item "my-api"  → section "test" → field "env" = "..."
-use super::{run_cmd, write_tempfile_json, SecretBackend};
+use super::{SecretBackend, run_cmd, write_tempfile_json};
 
 pub struct OpBackend {
     pub vault: String,
@@ -515,12 +515,12 @@ impl SecretBackend for OpBackend {
             } else {
                 title.to_string()
             };
-            if let Some(full) = self.get_item_by_title(title) {
-                if let Some(sections) = full.get("sections").and_then(|v| v.as_array()) {
-                    for section in sections {
-                        if let Some(label) = section.get("label").and_then(|v| v.as_str()) {
-                            pairs.push((service_name.clone(), label.to_string()));
-                        }
+            if let Some(full) = self.get_item_by_title(title)
+                && let Some(sections) = full.get("sections").and_then(|v| v.as_array())
+            {
+                for section in sections {
+                    if let Some(label) = section.get("label").and_then(|v| v.as_str()) {
+                        pairs.push((service_name.clone(), label.to_string()));
                     }
                 }
             }

@@ -1,14 +1,14 @@
-//! `penv dev-ui [--preset <name>] [--select] [--resume [<branch>]]`
+//! `penv dev-ui [--preset <name>] [--checkout [<branch>]] [--worktree] [--checkout-worktree [<branch>]]`
 //!
 //! Launches the ui repo in a dev session using the configured multiplexer.
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::cmd::pick_preset::resolve_workspace_preset;
 use crate::cmd::worktree::{
-    branch_to_safe, ensure_worktree, pick_branch_fzf, pick_worktree_wtf,
-    write_close_session_script, write_teardown_script,
+    branch_to_safe, current_branch, ensure_worktree, pick_branch_fzf, pick_worktree_wtf,
+    stash_and_checkout, write_close_session_script, write_teardown_script,
 };
-use crate::config::{repo_parent, repo_root, Settings};
+use crate::config::{Settings, repo_parent, repo_root};
 use crate::env_file::sh_escape;
 use crate::tmux::{active_mux, setup_linked_window};
 
@@ -16,9 +16,14 @@ use crate::tmux::{active_mux, setup_linked_window};
 
 pub struct DevUiArgs {
     pub preset: Option<String>,
-    pub select: bool,
-    pub resume: bool,
-    pub resume_branch: Option<String>,
+    /// Open the session in an existing Claude worktree (fzf picker).
+    pub worktree: bool,
+    /// Checkout a branch directly in the root repo (stash changes first).
+    pub checkout: bool,
+    pub checkout_branch: Option<String>,
+    /// Checkout a branch into a new/existing Claude worktree.
+    pub checkout_worktree: bool,
+    pub checkout_worktree_branch: Option<String>,
     pub attach: bool,
 }
 
@@ -46,17 +51,30 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     // ── Resolve workspace ────────────────────────────────────────────────────
 
-    let (ui_dir, session, is_worktree) = if args.select {
+    let (ui_dir, session, is_worktree) = if args.worktree {
+        // --worktree: pick from existing Claude worktrees.
         let (wt_path, branch) = pick_worktree_wtf(&ui_dir)?;
         let session = format!("{}_{}", repo, branch_to_safe(&branch));
         eprintln!("Session: {}", session);
         (wt_path, session, true)
-    } else if args.resume {
-        let branch = if let Some(b) = &args.resume_branch {
-            b.clone()
-        } else {
-            pick_branch_fzf(&ui_dir)?
-        };
+    } else if args.checkout_worktree {
+        // --checkout-worktree: create/reuse a Claude worktree for the branch.
+        // Error if that branch is currently checked out in the root repo.
+        let branch = args
+            .checkout_worktree_branch
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| pick_branch_fzf(&ui_dir))?;
+
+        let root_branch = current_branch(&ui_dir).unwrap_or_default();
+        if root_branch == branch {
+            bail!(
+                "Branch '{}' is currently checked out in the root repo. \
+                 Use --checkout to open the session there instead.",
+                branch
+            );
+        }
+
         let wt = ensure_worktree(&ui_dir, &branch)?;
         let session = format!("{}_{}", repo, branch_to_safe(&branch));
         eprintln!(
@@ -66,6 +84,17 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             session
         );
         (wt, session, true)
+    } else if args.checkout {
+        // --checkout: stash changes if needed and checkout branch in the root repo.
+        let branch = args
+            .checkout_branch
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| pick_branch_fzf(&ui_dir))?;
+
+        eprintln!("Checking out '{}' in {}...", branch, repo);
+        stash_and_checkout(&ui_dir, &branch)?;
+        (ui_dir.clone(), repo.clone(), false)
     } else {
         (ui_dir.clone(), repo.clone(), false)
     };
