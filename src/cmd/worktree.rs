@@ -44,7 +44,20 @@ pub fn stash_and_checkout(repo_dir: &Path, branch: &str) -> Result<bool> {
     let has_changes = !status.stdout.is_empty();
 
     if has_changes {
-        eprintln!("  {} — stashing uncommitted changes...", repo_dir.display());
+        let changed_files: Vec<&str> = status
+            .stdout
+            .split(|&b| b == b'\n')
+            .filter(|l| !l.is_empty())
+            .filter_map(|l| std::str::from_utf8(l).ok())
+            .collect();
+        eprintln!(
+            "  {} — stashing {} uncommitted file(s):",
+            repo_dir.display(),
+            changed_files.len()
+        );
+        for line in &changed_files {
+            eprintln!("    {}", line);
+        }
         let stash = Command::new("git")
             .args([
                 "-C",
@@ -63,6 +76,11 @@ pub fn stash_and_checkout(repo_dir: &Path, branch: &str) -> Result<bool> {
                 repo_dir.display(),
                 String::from_utf8_lossy(&stash.stderr).trim()
             );
+        }
+        let stash_msg = String::from_utf8_lossy(&stash.stdout);
+        let stash_msg = stash_msg.trim();
+        if !stash_msg.is_empty() {
+            eprintln!("  ✓ {}", stash_msg);
         }
     }
 
