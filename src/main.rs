@@ -101,7 +101,7 @@ enum Command {
         #[arg(long, group = "mode")]
         checkout: bool,
         /// Checkout a branch into a new/existing Claude worktree
-        #[arg(long, group = "mode")]
+        #[arg(long, alias = "worktree-checkout", group = "mode")]
         checkout_worktree: bool,
         /// Branch for --checkout or --checkout-worktree (prompts if omitted)
         #[arg(long)]
@@ -131,7 +131,7 @@ enum Command {
         #[arg(long, group = "mode")]
         checkout: bool,
         /// Checkout a branch into a new/existing Claude worktrees
-        #[arg(long, group = "mode")]
+        #[arg(long, alias = "worktree-checkout", group = "mode")]
         checkout_worktree: bool,
         /// Branch for --checkout or --checkout-worktree (prompts if omitted)
         #[arg(long)]
