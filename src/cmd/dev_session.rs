@@ -218,7 +218,8 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             .add("close_session", "close session")
             .add("show_info", "re-display this box")
             .add("inspect_env", "inspect env file ages")
-            .add_if(has_ticket, "open_ticket", "open ticket in browser");
+            .add_if(has_ticket, "open_ticket", "open ticket in browser")
+            .add("open_pr", "open GitHub PR in browser");
 
         let show_info_fn_cmd = format!(
             "'{}' show-info --preset '{}' --services {}{} --notes {} ||:",

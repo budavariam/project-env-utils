@@ -8,6 +8,7 @@ pub mod init;
 pub mod load_env;
 pub mod morning_check;
 pub mod op_sync;
+pub mod open_pr;
 pub mod open_ticket;
 pub mod pick_preset;
 pub mod setup_wizard;

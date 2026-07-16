@@ -58,7 +58,7 @@ pub fn extract_ticket(pattern: &str, name: &str) -> Option<String> {
         .map(|m| m.as_str().to_string())
 }
 
-fn open_url(url: &str) -> Result<()> {
+pub(crate) fn open_url(url: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     let cmd = "open";
     #[cfg(target_os = "linux")]

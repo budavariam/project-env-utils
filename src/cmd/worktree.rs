@@ -446,8 +446,8 @@ pub fn write_close_session_script(
         .collect::<Vec<_>>()
         .join(" ");
     let content = format!(
-        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\nopen_ticket() {{ '{}' open-ticket \"$@\"; }}\n",
-        reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset, penv
+        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\nopen_ticket() {{ '{}' open-ticket \"$@\"; }}\nopen_pr() {{ '{}' open-pr \"$@\"; }}\n",
+        reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset, penv, penv
     );
     std::fs::write(path, content)
         .with_context(|| format!("failed to write helper script to {}", path))?;
@@ -527,6 +527,7 @@ pub fn write_teardown_script(
         "open_ticket() {{ '{}' open-ticket \"$@\"; }}\n",
         penv
     ));
+    lines.push(format!("open_pr() {{ '{}' open-pr \"$@\"; }}\n", penv));
 
     let content = lines.concat();
     std::fs::write(path, content)
