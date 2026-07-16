@@ -369,9 +369,7 @@ fn main() {
             cmd::env_age::run(service.as_deref(), &active_preset, bref, &settings)
         }
 
-        Command::OpenTicket { branch } => {
-            cmd::open_ticket::run(branch.as_deref(), &settings)
-        }
+        Command::OpenTicket { branch } => cmd::open_ticket::run(branch.as_deref(), &settings),
 
         Command::Validate => cmd::validate::run(),
     };

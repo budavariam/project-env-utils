@@ -19,7 +19,9 @@ pub fn run() -> Result<()> {
 
     // Resolve the schema path from the $schema field, relative to settings.json.
     let schema_path: PathBuf = if let Some(rel) = data.get("$schema").and_then(|v| v.as_str()) {
-        let settings_dir = settings_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let settings_dir = settings_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
         settings_dir.join(rel)
     } else {
         repo_root().join("settings.schema.json")
@@ -34,8 +36,7 @@ pub fn run() -> Result<()> {
     let schema: serde_json::Value =
         serde_json::from_str(&schema_raw).context("schema file is not valid JSON")?;
 
-    let validator =
-        jsonschema::validator_for(&schema).context("failed to compile schema")?;
+    let validator = jsonschema::validator_for(&schema).context("failed to compile schema")?;
 
     let errors: Vec<String> = validator
         .iter_errors(&data)
@@ -49,6 +50,9 @@ pub fn run() -> Result<()> {
         for e in &errors {
             eprintln!("  ✗ {}", e);
         }
-        bail!("{} validation error(s) found in settings.json", errors.len());
+        bail!(
+            "{} validation error(s) found in settings.json",
+            errors.len()
+        );
     }
 }

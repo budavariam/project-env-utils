@@ -164,8 +164,14 @@ pub fn run() -> Result<()> {
     let ui_repo_raw = ask("UI repo name (empty to skip)", "");
     let dev_ui = if !ui_repo_raw.is_empty() {
         let pane_dev = ask("  Dev command (col=0, row=0)", "npm install && npm run dev");
-        let pane_sb = ask("  Storybook command (col=0, row=1, runs after 10s)", "npm run storybook");
-        let pane_git = ask("  Git viewer command (col=1, row=1, empty to skip)", "lazygit");
+        let pane_sb = ask(
+            "  Storybook command (col=0, row=1, runs after 10s)",
+            "npm run storybook",
+        );
+        let pane_git = ask(
+            "  Git viewer command (col=1, row=1, empty to skip)",
+            "lazygit",
+        );
         let mut panes = vec![
             serde_json::json!({"col": 0, "row": 0, "cmd": pane_dev}),
             serde_json::json!({"col": 0, "row": 1, "cmd": format!("sleep 10 && {}", pane_sb)}),

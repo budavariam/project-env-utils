@@ -20,13 +20,14 @@ const INNER: usize = BOX_WIDTH - 2;
 ///
 /// Names are right-padded to the longest name + 1 space so columns align
 /// automatically — no manual space counting needed.
+#[derive(Default)]
 pub struct SessionNotes {
     items: Vec<(String, String)>,
 }
 
 impl SessionNotes {
     pub fn new() -> Self {
-        Self { items: vec![] }
+        Self::default()
     }
 
     pub fn add(mut self, name: impl Into<String>, desc: impl Into<String>) -> Self {
@@ -36,7 +37,11 @@ impl SessionNotes {
 
     /// Append a note only when `condition` is true.
     pub fn add_if(self, condition: bool, name: impl Into<String>, desc: impl Into<String>) -> Self {
-        if condition { self.add(name, desc) } else { self }
+        if condition {
+            self.add(name, desc)
+        } else {
+            self
+        }
     }
 
     /// Render as space-separated single-quoted shell arguments for `--notes`.
@@ -242,7 +247,9 @@ mod tests {
 
     #[test]
     fn session_notes_single_item() {
-        let args = SessionNotes::new().add("show_info", "re-display this box").to_show_info_args();
+        let args = SessionNotes::new()
+            .add("show_info", "re-display this box")
+            .to_show_info_args();
         assert_eq!(args, "'show_info — re-display this box'");
     }
 
@@ -254,10 +261,20 @@ mod tests {
             .to_show_info_args();
         // "reload_env" is 10 chars (longest); width = 11.
         // "teardown" (8) gets 3 padding spaces; "reload_env" gets 1.
-        assert!(args.contains("'teardown    — remove worktree'") || args.contains("'teardown   — remove worktree'"));
+        assert!(
+            args.contains("'teardown    — remove worktree'")
+                || args.contains("'teardown   — remove worktree'")
+        );
         assert!(args.contains("reload_env "));
         // All column dashes should be at the same horizontal position
-        let width = args.split("— ").next().unwrap_or("").split('\'').last().unwrap_or("").len();
+        let width = args
+            .split("— ")
+            .next()
+            .unwrap_or("")
+            .split('\'')
+            .next_back()
+            .unwrap_or("")
+            .len();
         for part in args.split("— ").collect::<Vec<_>>().windows(1) {
             let _ = part; // just ensure it splits correctly
         }

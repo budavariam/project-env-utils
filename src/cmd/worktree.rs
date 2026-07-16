@@ -199,13 +199,22 @@ pub fn pick_session_fzf(choices: &[String]) -> Result<String> {
 pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
     let repo_s = repo_dir.to_string_lossy();
     let git_out = Command::new("git")
-        .args(["-C", &repo_s, "branch", "--format=%(committerdate:relative)\t%(refname:short)"])
+        .args([
+            "-C",
+            &repo_s,
+            "branch",
+            "--format=%(committerdate:relative)\t%(refname:short)",
+        ])
         .output()
         .context("git branch failed")?;
     let branch_list = String::from_utf8_lossy(&git_out.stdout).into_owned();
 
     let mut fzf = Command::new("fzf")
-        .args(["--print-query", "--prompt=Branch (new or existing): ", "--delimiter=\t"])
+        .args([
+            "--print-query",
+            "--prompt=Branch (new or existing): ",
+            "--delimiter=\t",
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -224,7 +233,12 @@ pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
     // Prefer the selected item; strip the leading date field first.
     // Fall back to whatever the user typed (new branch name).
     let branch = if !selection.is_empty() {
-        selection.split('\t').nth(1).unwrap_or("").trim().to_string()
+        selection
+            .split('\t')
+            .nth(1)
+            .unwrap_or("")
+            .trim()
+            .to_string()
     } else if !query.is_empty() {
         query
     } else {
@@ -265,7 +279,14 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
         .map(|name| {
             let wt_path = wt_base.join(name);
             let date = Command::new("git")
-                .args(["-C", &wt_path.to_string_lossy(), "log", "-1", "--format=%cr", "HEAD"])
+                .args([
+                    "-C",
+                    &wt_path.to_string_lossy(),
+                    "log",
+                    "-1",
+                    "--format=%cr",
+                    "HEAD",
+                ])
                 .output()
                 .ok()
                 .and_then(|o| {
@@ -502,7 +523,10 @@ pub fn write_teardown_script(
         "inspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n",
         penv, preset
     ));
-    lines.push(format!("open_ticket() {{ '{}' open-ticket \"$@\"; }}\n", penv));
+    lines.push(format!(
+        "open_ticket() {{ '{}' open-ticket \"$@\"; }}\n",
+        penv
+    ));
 
     let content = lines.concat();
     std::fs::write(path, content)

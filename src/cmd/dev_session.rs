@@ -205,9 +205,9 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         let tm = &settings.project.ticket_manager;
         let has_ticket = tm.is_configured() && {
             // Check first service's current branch for a ticket ID.
-            all_services.first().map_or(false, |svc| {
-                let branch = crate::cmd::worktree::current_branch(&root.join(svc))
-                    .unwrap_or_default();
+            all_services.first().is_some_and(|svc| {
+                let branch =
+                    crate::cmd::worktree::current_branch(&root.join(svc)).unwrap_or_default();
                 extract_ticket(&tm.pattern, &branch).is_some()
             })
         };

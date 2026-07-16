@@ -156,7 +156,10 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             } else {
                 root.join(&pane_cfg.repo).to_string_lossy().into_owned()
             };
-            mux.send_keys(&grid[row][col], &format!("cd '{}' && {}", sh_escape(&dir), pane_cfg.cmd))?;
+            mux.send_keys(
+                &grid[row][col],
+                &format!("cd '{}' && {}", sh_escape(&dir), pane_cfg.cmd),
+            )?;
         }
     }
 
@@ -167,7 +170,11 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
     let helper_path = format!("/tmp/dev-ui-helper-{}", session);
 
     let branch_name = if is_worktree {
-        ui_dir.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()
+        ui_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string()
     } else {
         current_branch(&ui_dir).unwrap_or_default()
     };

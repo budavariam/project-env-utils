@@ -337,7 +337,7 @@ mod tests {
     fn load_env_from_backend_takes_priority() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let service = "my-api";
-        let (_base, root, parent, svc_dir) = setup_fixture(service);
+        let (_base, root, _parent, svc_dir) = setup_fixture(service);
 
         let local_dir = root.join("local").join("test-proj");
         std::fs::create_dir_all(&local_dir).unwrap();
@@ -363,7 +363,7 @@ mod tests {
     fn load_env_falls_back_to_preset_local() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let service = "my-api";
-        let (_base, root, parent, svc_dir) = setup_fixture(service);
+        let (_base, root, _parent, svc_dir) = setup_fixture(service);
 
         let local_dir = root.join("local").join("test-proj").join(service);
         std::fs::create_dir_all(&local_dir).unwrap();
@@ -385,7 +385,7 @@ mod tests {
     fn load_env_falls_back_to_generic_local() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let service = "my-api";
-        let (_base, root, parent, svc_dir) = setup_fixture(service);
+        let (_base, root, _parent, svc_dir) = setup_fixture(service);
 
         let local_dir = root.join("local").join("test-proj").join(service);
         std::fs::create_dir_all(&local_dir).unwrap();
@@ -407,7 +407,7 @@ mod tests {
     fn load_env_falls_back_to_profile() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let service = "my-api";
-        let (_base, root, parent, svc_dir) = setup_fixture(service);
+        let (_base, root, _parent, svc_dir) = setup_fixture(service);
 
         let profile_dir = root.join("env").join(service);
         std::fs::create_dir_all(&profile_dir).unwrap();
@@ -452,7 +452,7 @@ mod tests {
     fn backend_miss_then_falls_back_to_profile() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let service = "my-api";
-        let (_base, root, parent, svc_dir) = setup_fixture(service);
+        let (_base, root, _parent, svc_dir) = setup_fixture(service);
 
         let profile_dir = root.join("env").join(service);
         std::fs::create_dir_all(&profile_dir).unwrap();
