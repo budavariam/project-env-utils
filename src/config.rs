@@ -117,9 +117,6 @@ pub struct DevBackendConfig {
     pub window_backend: Vec<SessionPaneConfig>,
     #[serde(default)]
     pub window_service: Vec<SessionPaneConfig>,
-    /// Command run in each pane of the auto-generated "git" window. Omit to skip the window.
-    #[serde(default)]
-    pub pane_git_cmd: Option<String>,
 }
 
 /// Config for a linked window from an external tmux session.

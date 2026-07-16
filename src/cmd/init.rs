@@ -163,12 +163,19 @@ pub fn run() -> Result<()> {
     println!("  The frontend repo for 'penv dev-ui'.");
     let ui_repo_raw = ask("UI repo name (empty to skip)", "");
     let dev_ui = if !ui_repo_raw.is_empty() {
-        let pane_dev = ask("  Dev command", "npm install && npm run dev");
-        let pane_sb = ask("  Storybook command", "npm run storybook");
+        let pane_dev = ask("  Dev command (col=0, row=0)", "npm install && npm run dev");
+        let pane_sb = ask("  Storybook command (col=0, row=1, runs after 10s)", "npm run storybook");
+        let pane_git = ask("  Git viewer command (col=1, row=1, empty to skip)", "lazygit");
+        let mut panes = vec![
+            serde_json::json!({"col": 0, "row": 0, "cmd": pane_dev}),
+            serde_json::json!({"col": 0, "row": 1, "cmd": format!("sleep 10 && {}", pane_sb)}),
+        ];
+        if !pane_git.is_empty() {
+            panes.push(serde_json::json!({"col": 1, "row": 1, "cmd": pane_git}));
+        }
         Some(serde_json::json!({
             "repo": ui_repo_raw,
-            "pane_dev_cmd": pane_dev,
-            "pane_sb_cmd": pane_sb,
+            "panes": panes,
         }))
     } else {
         None

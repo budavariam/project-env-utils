@@ -318,47 +318,6 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         }
     }
 
-    // ── Window: git state (lazygit per repo, worktree-aware) ─────────────────
-    //
-    // Left column:  window_backend repos (uses worktree dirs when in worktree mode)
-    // Right column: window_service repos (always at root)
-    // Only created when dev_backend.pane_git_cmd is set in settings.json.
-
-    if let Some(git_cmd) = cfg.pane_git_cmd.as_deref().filter(|s| !s.is_empty()) {
-        let service_git_dirs: Vec<PathBuf> =
-            cfg.window_service.iter().map(|p| root.join(&p.repo)).collect();
-        let git_window_idx: u32 = 1 + u32::from(!cfg.window_service.is_empty());
-
-        let first_git_dir = backend_dirs[0].to_string_lossy().into_owned();
-        mux.new_window(&session, "git", &first_git_dir)?;
-        let p_git_left_first = mux.first_pane_id(&session, git_window_idx)?;
-
-        let mut left_panes = vec![p_git_left_first.clone()];
-        for dir in backend_dirs.iter().skip(1) {
-            let dir_s = dir.to_string_lossy().into_owned();
-            left_panes.push(mux.split_v(left_panes.last().unwrap(), &dir_s)?);
-        }
-
-        let mut right_panes: Vec<String> = Vec::new();
-        if !service_git_dirs.is_empty() {
-            let first_svc = service_git_dirs[0].to_string_lossy().into_owned();
-            right_panes.push(mux.split_h(&p_git_left_first, &first_svc)?);
-            for dir in service_git_dirs.iter().skip(1) {
-                let dir_s = dir.to_string_lossy().into_owned();
-                right_panes.push(mux.split_v(right_panes.last().unwrap(), &dir_s)?);
-            }
-        }
-
-        for (i, dir) in backend_dirs.iter().enumerate() {
-            let dir_s = dir.to_string_lossy().into_owned();
-            mux.send_keys(&left_panes[i], &format!("cd '{}' && {}", sh_escape(&dir_s), git_cmd))?;
-        }
-        for (i, dir) in service_git_dirs.iter().enumerate() {
-            let dir_s = dir.to_string_lossy().into_owned();
-            mux.send_keys(&right_panes[i], &format!("cd '{}' && {}", sh_escape(&dir_s), git_cmd))?;
-        }
-    }
-
     // ── Claude window ─────────────────────────────────────────────────────────
 
     setup_linked_window(&session, &settings.project.claude, mux.as_ref())?;
