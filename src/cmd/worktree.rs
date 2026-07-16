@@ -191,20 +191,21 @@ pub fn pick_session_fzf(choices: &[String]) -> Result<String> {
     Ok(selected)
 }
 
-/// Pick a branch interactively using fzf.
+/// Pick a branch interactively using fzf. Each entry shows the branch name and
+/// its last committer date so the user can tell how recently it was used.
 /// Existing branches are listed for selection; typing a new name and pressing
 /// Enter creates it (the caller is responsible for the actual `git checkout -b`
 /// or `git worktree add -b`).
 pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
     let repo_s = repo_dir.to_string_lossy();
     let git_out = Command::new("git")
-        .args(["-C", &repo_s, "branch", "--format=%(refname:short)"])
+        .args(["-C", &repo_s, "branch", "--format=%(committerdate:relative)\t%(refname:short)"])
         .output()
         .context("git branch failed")?;
     let branch_list = String::from_utf8_lossy(&git_out.stdout).into_owned();
 
     let mut fzf = Command::new("fzf")
-        .args(["--print-query", "--prompt=Branch (new or existing): "])
+        .args(["--print-query", "--prompt=Branch (new or existing): ", "--delimiter=\t"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -220,9 +221,10 @@ pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
     let query = lines.next().unwrap_or("").trim().to_string();
     let selection = lines.next().unwrap_or("").trim().to_string();
 
-    // Prefer the selected item; fall back to whatever the user typed (new branch).
+    // Prefer the selected item; strip the leading date field first.
+    // Fall back to whatever the user typed (new branch name).
     let branch = if !selection.is_empty() {
-        selection
+        selection.split('\t').nth(1).unwrap_or("").trim().to_string()
     } else if !query.is_empty() {
         query
     } else {
@@ -232,6 +234,7 @@ pub fn pick_branch_fzf(repo_dir: &Path) -> Result<String> {
 }
 
 /// Pick an existing worktree from `{repo}/.claude/worktrees/` using fzf.
+/// Each entry shows the worktree name and the last commit's relative date.
 /// Returns the branch name (read from git inside the worktree).
 pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
     let wt_base = repo_dir.join(".claude").join("worktrees");
@@ -257,9 +260,26 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
         );
     }
 
-    let list = entries.join("\n");
+    let list: String = entries
+        .iter()
+        .map(|name| {
+            let wt_path = wt_base.join(name);
+            let date = Command::new("git")
+                .args(["-C", &wt_path.to_string_lossy(), "log", "-1", "--format=%cr", "HEAD"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if s.is_empty() { None } else { Some(s) }
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+            format!("{}\t{}", date, name)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
     let mut fzf = Command::new("fzf")
-        .args(["--prompt=Worktree: "])
+        .args(["--prompt=Worktree: ", "--delimiter=\t"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -275,7 +295,13 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
         bail!("No worktree selected.");
     }
 
-    let wt_path = wt_base.join(&selected);
+    // Strip the leading date field to recover the directory name.
+    let wt_name = selected.split('\t').nth(1).unwrap_or("").trim().to_string();
+    if wt_name.is_empty() {
+        bail!("No worktree selected.");
+    }
+
+    let wt_path = wt_base.join(&wt_name);
     let branch = Command::new("git")
         .args(["-C", &wt_path.to_string_lossy(), "branch", "--show-current"])
         .output()
@@ -284,7 +310,7 @@ pub fn pick_existing_worktree_fzf(repo_dir: &Path) -> Result<String> {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
             if s.is_empty() { None } else { Some(s) }
         })
-        .unwrap_or(selected);
+        .unwrap_or(wt_name);
 
     Ok(branch)
 }
@@ -399,8 +425,8 @@ pub fn write_close_session_script(
         .collect::<Vec<_>>()
         .join(" ");
     let content = format!(
-        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n",
-        reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset
+        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\nopen_ticket() {{ '{}' open-ticket \"$@\"; }}\n",
+        reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset, penv
     );
     std::fs::write(path, content)
         .with_context(|| format!("failed to write helper script to {}", path))?;
@@ -476,6 +502,7 @@ pub fn write_teardown_script(
         "inspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\n",
         penv, preset
     ));
+    lines.push(format!("open_ticket() {{ '{}' open-ticket \"$@\"; }}\n", penv));
 
     let content = lines.concat();
     std::fs::write(path, content)

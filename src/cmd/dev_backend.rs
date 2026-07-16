@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 
+use crate::cmd::open_ticket::extract_ticket;
 use crate::cmd::pick_preset::{resolve_backend_preset, resolve_workspace_preset};
+use crate::cmd::show_info::SessionNotes;
 use crate::cmd::worktree::{
     branch_to_safe, current_branch, ensure_worktree, pick_branch_fzf, pick_existing_worktree_fzf,
     stash_and_checkout, write_close_session_script, write_teardown_script,
@@ -213,6 +215,40 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         .collect::<Vec<_>>()
         .join(" ");
 
+    let branch_name = if is_worktree {
+        backend_dirs
+            .first()
+            .and_then(|d| d.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        cfg.window_backend
+            .first()
+            .map(|p| current_branch(&root.join(&p.repo)).unwrap_or_default())
+            .unwrap_or_default()
+    };
+    let tm = &settings.project.ticket_manager;
+    let has_ticket = tm.is_configured() && extract_ticket(&tm.pattern, &branch_name).is_some();
+
+    let notes = SessionNotes::new()
+        .add_if(is_worktree, "teardown", "remove worktrees & close session")
+        .add("reload_env", "reload .env from current preset")
+        .add("change_preset", "switch preset")
+        .add_if(is_worktree, "close_session", "close session only")
+        .add_if(!is_worktree, "close_session", "close session")
+        .add("show_info", "re-display this box")
+        .add("inspect_env", "inspect env file ages")
+        .add_if(has_ticket, "open_ticket", "open ticket in browser");
+
+    let show_info_fn_cmd = format!(
+        "'{}' show-info --preset '{}' --services {} --notes {} ||:",
+        sh_escape(&penv),
+        sh_escape(&preset),
+        services_arg,
+        notes.to_show_info_args(),
+    );
+
     if is_worktree {
         let worktrees: Vec<(PathBuf, PathBuf)> = cfg
             .window_backend
@@ -225,18 +261,6 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             .map(|(wt, r)| (wt.as_path(), r.as_path()))
             .collect();
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
-        let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --services {} --notes \
-             'teardown      — remove worktrees & close session' \
-             'reload_env    — reload .env from current preset' \
-             'change_preset — switch preset' \
-             'close_session — close session only' \
-             'show_info     — re-display this box' \
-             'inspect_env   — inspect env file ages' ||:",
-            sh_escape(&penv),
-            sh_escape(&preset),
-            services_arg,
-        );
         write_teardown_script(
             &helper_path,
             &session,
@@ -246,26 +270,8 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             &svc_refs,
             &show_info_fn_cmd,
         )?;
-        mux.send_keys(
-            &p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path
-            ),
-        )?;
     } else {
         let svc_refs: Vec<&str> = service_names.iter().map(|s| s.as_str()).collect();
-        let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --services {} --notes \
-             'reload_env    — reload .env from current preset' \
-             'change_preset — switch preset' \
-             'close_session — close session' \
-             'show_info     — re-display this box' \
-             'inspect_env   — inspect env file ages' ||:",
-            sh_escape(&penv),
-            sh_escape(&preset),
-            services_arg,
-        );
         write_close_session_script(
             &helper_path,
             &session,
@@ -274,14 +280,14 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             &svc_refs,
             &show_info_fn_cmd,
         )?;
-        mux.send_keys(
-            &p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path
-            ),
-        )?;
     }
+    mux.send_keys(
+        &p_shell,
+        &format!(
+            "{}; source '{}'; rm -f '{}'",
+            show_info_fn_cmd, helper_path, helper_path
+        ),
+    )?;
 
     // ── Window 1: service (window_service panes) ──────────────────────────────
 
@@ -309,6 +315,47 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
                 &svc_pane_ids[i],
                 &format!("cd '{}' && {}", sh_escape(&dir_s), pane_cfg.cmd),
             )?;
+        }
+    }
+
+    // ── Window: git state (lazygit per repo, worktree-aware) ─────────────────
+    //
+    // Left column:  window_backend repos (uses worktree dirs when in worktree mode)
+    // Right column: window_service repos (always at root)
+    // Only created when dev_backend.pane_git_cmd is set in settings.json.
+
+    if let Some(git_cmd) = cfg.pane_git_cmd.as_deref().filter(|s| !s.is_empty()) {
+        let service_git_dirs: Vec<PathBuf> =
+            cfg.window_service.iter().map(|p| root.join(&p.repo)).collect();
+        let git_window_idx: u32 = 1 + u32::from(!cfg.window_service.is_empty());
+
+        let first_git_dir = backend_dirs[0].to_string_lossy().into_owned();
+        mux.new_window(&session, "git", &first_git_dir)?;
+        let p_git_left_first = mux.first_pane_id(&session, git_window_idx)?;
+
+        let mut left_panes = vec![p_git_left_first.clone()];
+        for dir in backend_dirs.iter().skip(1) {
+            let dir_s = dir.to_string_lossy().into_owned();
+            left_panes.push(mux.split_v(left_panes.last().unwrap(), &dir_s)?);
+        }
+
+        let mut right_panes: Vec<String> = Vec::new();
+        if !service_git_dirs.is_empty() {
+            let first_svc = service_git_dirs[0].to_string_lossy().into_owned();
+            right_panes.push(mux.split_h(&p_git_left_first, &first_svc)?);
+            for dir in service_git_dirs.iter().skip(1) {
+                let dir_s = dir.to_string_lossy().into_owned();
+                right_panes.push(mux.split_v(right_panes.last().unwrap(), &dir_s)?);
+            }
+        }
+
+        for (i, dir) in backend_dirs.iter().enumerate() {
+            let dir_s = dir.to_string_lossy().into_owned();
+            mux.send_keys(&left_panes[i], &format!("cd '{}' && {}", sh_escape(&dir_s), git_cmd))?;
+        }
+        for (i, dir) in service_git_dirs.iter().enumerate() {
+            let dir_s = dir.to_string_lossy().into_owned();
+            mux.send_keys(&right_panes[i], &format!("cd '{}' && {}", sh_escape(&dir_s), git_cmd))?;
         }
     }
 

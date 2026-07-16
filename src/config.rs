@@ -103,8 +103,11 @@ pub struct SessionConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct DevUiConfig {
     pub repo: String,
-    pub pane_dev_cmd: String,
-    pub pane_sb_cmd: String,
+    /// User-defined panes for the 2×2 grid. The shell pane at (col=1, row=0) is always
+    /// reserved for penv info and helper functions.
+    /// Any other position can hold an arbitrary command; empty cmd = idle shell.
+    #[serde(default)]
+    pub panes: Vec<GridPaneConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -114,6 +117,9 @@ pub struct DevBackendConfig {
     pub window_backend: Vec<SessionPaneConfig>,
     #[serde(default)]
     pub window_service: Vec<SessionPaneConfig>,
+    /// Command run in each pane of the auto-generated "git" window. Omit to skip the window.
+    #[serde(default)]
+    pub pane_git_cmd: Option<String>,
 }
 
 /// Config for a linked window from an external tmux session.
@@ -139,6 +145,27 @@ pub struct LinkedWindowConfig {
     pub start_dir: String,
 }
 
+/// Configuration for ticket manager integration.
+/// When set, dev session helper scripts get an `open_ticket` function that
+/// extracts a ticket ID from the current git branch and opens the configured URL.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TicketManagerConfig {
+    /// Regex applied to the branch name to extract the ticket ID (first match).
+    /// Examples: Wrike (numeric): `\d+`  /  Jira: `[A-Z]+-\d+`
+    #[serde(default)]
+    pub pattern: String,
+    /// URL template — `{ticket}` is replaced with the matched ID.
+    /// Example: `https://www.wrike.com/open.htm?id={ticket}`
+    #[serde(default)]
+    pub url_template: String,
+}
+
+impl TicketManagerConfig {
+    pub fn is_configured(&self) -> bool {
+        !self.pattern.is_empty() && !self.url_template.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ProjectConfig {
     pub project_name: String,
@@ -153,6 +180,8 @@ pub struct ProjectConfig {
     pub claude: LinkedWindowConfig,
     /// Flexible grid sessions (used by `penv dev-session`).
     pub sessions: Vec<SessionConfig>,
+    /// Optional ticket manager integration (Wrike, Jira, etc.).
+    pub ticket_manager: TicketManagerConfig,
 }
 
 // ── Runtime paths ──────────────────────────────────────────────────────────────
@@ -501,6 +530,8 @@ fn parse_project(json: &serde_json::Value) -> ProjectConfig {
         claude: LinkedWindowConfig,
         #[serde(default)]
         sessions: Vec<SessionConfig>,
+        #[serde(default)]
+        ticket_manager: TicketManagerConfig,
     }
     #[derive(Deserialize, Default)]
     struct RawProject {
@@ -525,6 +556,7 @@ fn parse_project(json: &serde_json::Value) -> ProjectConfig {
         dev_backend: raw.dev_backend,
         claude: raw.claude,
         sessions: raw.sessions,
+        ticket_manager: raw.ticket_manager,
     }
 }
 
@@ -601,7 +633,7 @@ mod tests {
         let mut f = std::fs::File::create(dir.path().join("settings.json")).unwrap();
         write!(
             f,
-            r#"{{"project":{{"name":"Acme","bucket":"acme-secrets","op_vault":"Acme Dev"}},"services":[{{"name":"svc-a","env_vars":["FOO","BAR"]}}],"dev_ui":{{"repo":"svc-a","pane_dev_cmd":"npm run dev","pane_sb_cmd":"npm run sb"}},"dev_backend":{{"session_name":"acme-backend","window_backend":[],"window_service":[]}}}}"#
+            r#"{{"project":{{"name":"Acme","bucket":"acme-secrets","op_vault":"Acme Dev"}},"services":[{{"name":"svc-a","env_vars":["FOO","BAR"]}}],"dev_ui":{{"repo":"svc-a","panes":[{{"col":0,"row":0,"cmd":"npm run dev"}},{{"col":0,"row":1,"cmd":"npm run sb"}}]}},"dev_backend":{{"session_name":"acme-backend","window_backend":[],"window_service":[]}}}}"#
         )
         .unwrap();
 

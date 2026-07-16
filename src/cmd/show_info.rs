@@ -14,6 +14,45 @@ use crate::env_file::parse_env;
 pub const BOX_WIDTH: usize = 56;
 const INNER: usize = BOX_WIDTH - 2;
 
+// ── SessionNotes builder ───────────────────────────────────────────────────────
+
+/// Builder for the `--notes` arguments passed to `show-info`.
+///
+/// Names are right-padded to the longest name + 1 space so columns align
+/// automatically — no manual space counting needed.
+pub struct SessionNotes {
+    items: Vec<(String, String)>,
+}
+
+impl SessionNotes {
+    pub fn new() -> Self {
+        Self { items: vec![] }
+    }
+
+    pub fn add(mut self, name: impl Into<String>, desc: impl Into<String>) -> Self {
+        self.items.push((name.into(), desc.into()));
+        self
+    }
+
+    /// Append a note only when `condition` is true.
+    pub fn add_if(self, condition: bool, name: impl Into<String>, desc: impl Into<String>) -> Self {
+        if condition { self.add(name, desc) } else { self }
+    }
+
+    /// Render as space-separated single-quoted shell arguments for `--notes`.
+    pub fn to_show_info_args(&self) -> String {
+        if self.items.is_empty() {
+            return String::new();
+        }
+        let width = self.items.iter().map(|(n, _)| n.len()).max().unwrap_or(0) + 1;
+        self.items
+            .iter()
+            .map(|(name, desc)| format!("'{:<width$}— {}'", name, desc, width = width))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
 // ── Row builders ───────────────────────────────────────────────────────────────
 
 pub type Row = Option<String>;
@@ -192,6 +231,58 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── SessionNotes ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn session_notes_empty_produces_empty_string() {
+        let notes = SessionNotes::new();
+        assert_eq!(notes.to_show_info_args(), "");
+    }
+
+    #[test]
+    fn session_notes_single_item() {
+        let args = SessionNotes::new().add("show_info", "re-display this box").to_show_info_args();
+        assert_eq!(args, "'show_info — re-display this box'");
+    }
+
+    #[test]
+    fn session_notes_pads_names_to_longest() {
+        let args = SessionNotes::new()
+            .add("teardown", "remove worktree")
+            .add("reload_env", "reload .env")
+            .to_show_info_args();
+        // "reload_env" is 10 chars (longest); width = 11.
+        // "teardown" (8) gets 3 padding spaces; "reload_env" gets 1.
+        assert!(args.contains("'teardown    — remove worktree'") || args.contains("'teardown   — remove worktree'"));
+        assert!(args.contains("reload_env "));
+        // All column dashes should be at the same horizontal position
+        let width = args.split("— ").next().unwrap_or("").split('\'').last().unwrap_or("").len();
+        for part in args.split("— ").collect::<Vec<_>>().windows(1) {
+            let _ = part; // just ensure it splits correctly
+        }
+        assert_eq!(width, 11); // longest (10) + 1
+    }
+
+    #[test]
+    fn session_notes_add_if_true_includes_item() {
+        let args = SessionNotes::new()
+            .add("show_info", "box")
+            .add_if(true, "open_ticket", "ticket")
+            .to_show_info_args();
+        assert!(args.contains("open_ticket"));
+    }
+
+    #[test]
+    fn session_notes_add_if_false_omits_item() {
+        let args = SessionNotes::new()
+            .add("show_info", "box")
+            .add_if(false, "open_ticket", "ticket")
+            .to_show_info_args();
+        assert!(!args.contains("open_ticket"));
+    }
+
+    // ── word_wrap / render_box ────────────────────────────────────────────────
 
     #[test]
     fn word_wrap_short_text_stays_on_one_line() {

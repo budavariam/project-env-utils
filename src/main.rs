@@ -160,6 +160,13 @@ enum Command {
         #[arg(long)]
         preset: Option<String>,
     },
+
+    /// Open the ticket URL extracted from the current git branch
+    OpenTicket {
+        /// Branch name to extract the ticket from (defaults to current git branch)
+        #[arg(long)]
+        branch: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -357,6 +364,10 @@ fn main() {
                 })
                 .unwrap_or_else(|| "dev".to_string());
             cmd::env_age::run(service.as_deref(), &active_preset, bref, &settings)
+        }
+
+        Command::OpenTicket { branch } => {
+            cmd::open_ticket::run(branch.as_deref(), &settings)
         }
     };
 

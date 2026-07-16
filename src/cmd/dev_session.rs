@@ -5,7 +5,9 @@
 //! grid.  Grid positions not covered by a configured pane become idle shells.
 use anyhow::{Result, bail};
 
+use crate::cmd::open_ticket::extract_ticket;
 use crate::cmd::pick_preset::resolve_backend_preset;
+use crate::cmd::show_info::SessionNotes;
 use crate::cmd::worktree::write_close_session_script;
 use crate::config::{Settings, repo_parent, repo_root};
 use crate::env_file::sh_escape;
@@ -199,12 +201,32 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
                 session_cfg.message.replace('\'', "'\\''")
             )
         };
+
+        let tm = &settings.project.ticket_manager;
+        let has_ticket = tm.is_configured() && {
+            // Check first service's current branch for a ticket ID.
+            all_services.first().map_or(false, |svc| {
+                let branch = crate::cmd::worktree::current_branch(&root.join(svc))
+                    .unwrap_or_default();
+                extract_ticket(&tm.pattern, &branch).is_some()
+            })
+        };
+
+        let notes = SessionNotes::new()
+            .add("reload_env", "reload .env from current preset")
+            .add("change_preset", "switch preset")
+            .add("close_session", "close session")
+            .add("show_info", "re-display this box")
+            .add("inspect_env", "inspect env file ages")
+            .add_if(has_ticket, "open_ticket", "open ticket in browser");
+
         let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --services {}{} --notes 'reload_env    — reload .env from current preset' 'change_preset — switch preset' 'close_session — close session' 'show_info     — re-display this box' 'inspect_env   — inspect env file ages' ||:",
+            "'{}' show-info --preset '{}' --services {}{} --notes {} ||:",
             sh_escape(&penv),
             sh_escape(&preset),
             services_arg,
             message_arg,
+            notes.to_show_info_args(),
         );
         write_close_session_script(
             &helper_path,

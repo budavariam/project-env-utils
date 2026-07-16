@@ -3,7 +3,7 @@ resolver = "2"
 
 [package]
 name = "project-env-utils"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 
 [lib]
@@ -22,6 +22,7 @@ anyhow = "1"
 similar = { version = "2", features = ["text"] }
 tempfile = "3"
 rusqlite = { version = "0.31", features = ["bundled"] }
+regex = "1"
 
 [dev-dependencies]
 tempfile = "3"

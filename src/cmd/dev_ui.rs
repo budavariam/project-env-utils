@@ -3,7 +3,9 @@
 //! Launches the ui repo in a dev session using the configured multiplexer.
 use anyhow::{Result, bail};
 
+use crate::cmd::open_ticket::extract_ticket;
 use crate::cmd::pick_preset::resolve_workspace_preset;
+use crate::cmd::show_info::SessionNotes;
 use crate::cmd::worktree::{
     branch_to_safe, current_branch, ensure_worktree, pick_branch_fzf, pick_worktree_wtf,
     stash_and_checkout, write_close_session_script, write_teardown_script,
@@ -126,32 +128,37 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     // ── Create session with 2×2 pane grid ────────────────────────────────────
     //
-    // Layout (tmux):            Layout (screen — each cell = a window):
-    //   p_ui   | p_shell          window 0 = p_ui
-    //   p_sb   | (idle)           window p1 = p_shell
-    //                             window p2 = p_sb
+    // (col=1, row=0) is always the shell/info pane; all other positions come from
+    // dev_ui.panes in settings.json — empty cmd = idle shell.
+    //
+    // Layout (tmux):               Layout (screen — each cell = a window):
+    //   [0][0]  | [0][1]=shell       window 0 = [0][0]
+    //   [1][0]  | [1][1]             window p1 = shell
+    //                                window p2 = [1][0]
+    //                                window p3 = [1][1]
 
     mux.new_session(&session, "ui", &ui_dir_s)?;
     let first = mux.first_pane_id(&session, 0)?;
     let grid = mux.build_pane_grid(&first, 2, 2, &ui_dir_s)?;
-    let p_ui = &grid[0][0];
     let p_shell = &grid[0][1];
-    let p_sb = &grid[1][0];
-    // grid[1][1] is an idle shell
 
-    // ── Pane commands ─────────────────────────────────────────────────────────
+    // ── Pane commands (fully driven by settings.json dev_ui.panes) ────────────
 
-    let dev_cmd = &settings.project.dev_ui.pane_dev_cmd;
-    let sb_cmd = &settings.project.dev_ui.pane_sb_cmd;
-
-    mux.send_keys(
-        p_ui,
-        &format!("cd '{}' && {}", sh_escape(&ui_dir_s), dev_cmd),
-    )?;
-    mux.send_keys(
-        p_sb,
-        &format!("cd '{}' && sleep 10 && {}", sh_escape(&ui_dir_s), sb_cmd),
-    )?;
+    for pane_cfg in &settings.project.dev_ui.panes {
+        let col = pane_cfg.col.min(1);
+        let row = pane_cfg.row;
+        if col == 1 && row == 0 {
+            continue; // reserved for the shell pane
+        }
+        if row < grid.len() && col < grid[row].len() && !pane_cfg.cmd.is_empty() {
+            let dir = if pane_cfg.repo.is_empty() {
+                ui_dir_s.clone()
+            } else {
+                root.join(&pane_cfg.repo).to_string_lossy().into_owned()
+            };
+            mux.send_keys(&grid[row][col], &format!("cd '{}' && {}", sh_escape(&dir), pane_cfg.cmd))?;
+        }
+    }
 
     // Shell pane — helper script
     let penv = std::env::current_exe()
@@ -159,19 +166,33 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
         .unwrap_or_else(|_| format!("{}/penv", repo_root().to_string_lossy()));
     let helper_path = format!("/tmp/dev-ui-helper-{}", session);
 
+    let branch_name = if is_worktree {
+        ui_dir.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()
+    } else {
+        current_branch(&ui_dir).unwrap_or_default()
+    };
+    let tm = &settings.project.ticket_manager;
+    let has_ticket = tm.is_configured() && extract_ticket(&tm.pattern, &branch_name).is_some();
+
+    let notes = SessionNotes::new()
+        .add_if(is_worktree, "teardown", "remove worktree & close session")
+        .add("reload_env", "reload .env from current preset")
+        .add("change_preset", "switch preset")
+        .add_if(is_worktree, "close_session", "close session only")
+        .add_if(!is_worktree, "close_session", "close session")
+        .add("show_info", "re-display this box")
+        .add("inspect_env", "inspect env file ages")
+        .add_if(has_ticket, "open_ticket", "open ticket in browser");
+
+    let show_info_fn_cmd = format!(
+        "'{}' show-info --preset '{}' --workspace '{}' --notes {} ||:",
+        sh_escape(&penv),
+        sh_escape(&preset),
+        sh_escape(&ui_dir_s),
+        notes.to_show_info_args(),
+    );
+
     if is_worktree {
-        let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --workspace '{}' --notes \
-             'teardown      — remove worktree & close session' \
-             'reload_env    — reload .env from current preset' \
-             'change_preset — switch preset' \
-             'close_session — close session only' \
-             'show_info     — re-display this box' \
-             'inspect_env   — inspect env file ages' ||:",
-            sh_escape(&penv),
-            sh_escape(&preset),
-            sh_escape(&ui_dir_s),
-        );
         write_teardown_script(
             &helper_path,
             &session,
@@ -181,25 +202,7 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             &[repo.as_str()],
             &show_info_fn_cmd,
         )?;
-        mux.send_keys(
-            p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path
-            ),
-        )?;
     } else {
-        let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --workspace '{}' --notes \
-             'reload_env    — reload .env from current preset' \
-             'change_preset — switch preset' \
-             'close_session — close session' \
-             'show_info     — re-display this box' \
-             'inspect_env   — inspect env file ages' ||:",
-            sh_escape(&penv),
-            sh_escape(&preset),
-            sh_escape(&ui_dir_s),
-        );
         write_close_session_script(
             &helper_path,
             &session,
@@ -208,14 +211,14 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             &[repo.as_str()],
             &show_info_fn_cmd,
         )?;
-        mux.send_keys(
-            p_shell,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path
-            ),
-        )?;
     }
+    mux.send_keys(
+        p_shell,
+        &format!(
+            "{}; source '{}'; rm -f '{}'",
+            show_info_fn_cmd, helper_path, helper_path
+        ),
+    )?;
 
     // ── Claude window ─────────────────────────────────────────────────────────
 

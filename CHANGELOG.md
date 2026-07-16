@@ -2,6 +2,22 @@
 
 All notable changes to project-env-utils are documented here.
 
+## [0.2.1] - 2026-07-16
+
+### Added
+
+- **`open-ticket` command** (`penv open-ticket [--branch <name>]`) — extracts a ticket ID from the current git branch using a configurable regex pattern and opens the configured URL template in the default browser; errors when `ticket_manager` is not configured or no match is found
+- **`ticket_manager` config block** in `settings.json`:
+  - `pattern` — regex for ticket ID extraction (e.g. `\d+` for Wrike, `[A-Z]+-\d+` for Jira)
+  - `url_template` — URL with `{ticket}` placeholder
+- **`open_ticket()` shell function** injected into every dev session helper script alongside `reload_env`, `change_preset`, etc.
+- **`SessionNotes` builder** in `cmd::show_info` — replaces hardcoded column-aligned note strings with a typed `Vec`-backed builder; `add_if(condition, name, desc)` enables dynamic entries; `to_show_info_args()` auto-aligns name columns
+- Dev session info box (`show_info`) now shows `open_ticket` only when the current branch matches the configured pattern — omitted entirely when no ticket is present or `ticket_manager` is unconfigured
+
+### Changed
+
+- `dev_ui`, `dev_backend`, `dev_session`: replaced hardcoded `--notes` format strings with `SessionNotes` builder (no behaviour change for existing configurations)
+
 ## [0.2.0] - 2026-07-14
 
 ### Breaking changes
