@@ -167,6 +167,9 @@ enum Command {
         #[arg(long)]
         branch: Option<String>,
     },
+
+    /// Validate settings.json against settings.schema.json
+    Validate,
 }
 
 #[derive(Subcommand)]
@@ -369,6 +372,8 @@ fn main() {
         Command::OpenTicket { branch } => {
             cmd::open_ticket::run(branch.as_deref(), &settings)
         }
+
+        Command::Validate => cmd::validate::run(),
     };
 
     if let Err(e) = result {

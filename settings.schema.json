@@ -122,6 +122,10 @@
           "description": "Panes in the 'service' window.",
           "items": { "$ref": "#/$defs/sessionPane" },
           "default": []
+        },
+        "pane_git_cmd": {
+          "type": "string",
+          "description": "Command run in each pane of the auto-generated 'git' window (e.g. 'lazygit'). Omit to skip the git window."
         }
       },
       "default": {}

@@ -13,4 +13,5 @@ pub mod pick_preset;
 pub mod setup_wizard;
 pub mod show_info;
 pub mod sync;
+pub mod validate;
 pub mod worktree;
