@@ -27,6 +27,10 @@ pub struct DevUiArgs {
     pub checkout_worktree: bool,
     pub checkout_worktree_branch: Option<String>,
     pub attach: bool,
+    /// Pre-selected worktree path; bypasses the interactive picker when set.
+    /// Callers that need to know the UI branch before `run()` (e.g. to open VS Code
+    /// with the right group arg) can resolve the worktree themselves and pass it here.
+    pub worktree_path: Option<std::path::PathBuf>,
 }
 
 // ── run() ─────────────────────────────────────────────────────────────────────
@@ -53,7 +57,17 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     // ── Resolve workspace ────────────────────────────────────────────────────
 
-    let (ui_dir, session, is_worktree) = if args.worktree {
+    let (ui_dir, session, is_worktree) = if let Some(wt_path) = args.worktree_path.clone() {
+        // Caller pre-selected the worktree (e.g. to thread the branch into a VS Code open).
+        let branch = wt_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        let session = format!("{}_{}", repo, branch_to_safe(&branch));
+        eprintln!("Session: {}", session);
+        (wt_path, session, true)
+    } else if args.worktree {
         // --worktree: pick from existing Claude worktrees.
         let (wt_path, branch) = pick_worktree_wtf(&ui_dir)?;
         let session = format!("{}_{}", repo, branch_to_safe(&branch));

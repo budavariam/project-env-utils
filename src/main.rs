@@ -313,6 +313,7 @@ fn main() {
                     None
                 },
                 attach: *attach,
+                worktree_path: None,
             },
             &settings,
         ),
