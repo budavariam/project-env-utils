@@ -30,6 +30,8 @@ pub struct DevBackendArgs {
     pub checkout_worktree: bool,
     pub checkout_worktree_branch: Option<String>,
     pub attach: bool,
+    /// Pre-selected worktree branch; bypasses the interactive picker when set with `worktree: true`.
+    pub worktree_branch: Option<String>,
 }
 
 // ── run() ─────────────────────────────────────────────────────────────────────
@@ -61,9 +63,13 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     // ── Resolve workspace ────────────────────────────────────────────────────
 
     let (backend_dirs, session, is_worktree) = if args.worktree {
-        // --worktree: pick from existing Claude worktrees in the primary repo.
+        // --worktree: pick from existing Claude worktrees in the primary repo,
+        // or use the pre-selected branch passed by the caller.
         let primary_repo = root.join(&cfg.window_backend[0].repo);
-        let branch = pick_existing_worktree_fzf(&primary_repo)?;
+        let branch = match args.worktree_branch.clone() {
+            Some(b) => b,
+            None => pick_existing_worktree_fzf(&primary_repo)?,
+        };
         let safe = branch_to_safe(&branch);
         let session = format!("{}_{}", cfg.session_name, safe);
         let mut dirs = Vec::new();

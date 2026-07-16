@@ -168,6 +168,13 @@ enum Command {
         branch: Option<String>,
     },
 
+    /// Open the GitHub PR for the current (or specified) git branch
+    OpenPr {
+        /// Branch name to look up the PR for (defaults to current git branch)
+        #[arg(long)]
+        branch: Option<String>,
+    },
+
     /// Validate settings.json against settings.schema.json
     Validate,
 }
@@ -338,6 +345,7 @@ fn main() {
                     None
                 },
                 attach: *attach,
+                worktree_branch: None,
             },
             &settings,
         ),
@@ -371,6 +379,8 @@ fn main() {
         }
 
         Command::OpenTicket { branch } => cmd::open_ticket::run(branch.as_deref(), &settings),
+
+        Command::OpenPr { branch } => cmd::open_pr::run(branch.as_deref()),
 
         Command::Validate => cmd::validate::run(),
     };
