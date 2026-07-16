@@ -2,6 +2,24 @@
 
 All notable changes to project-env-utils are documented here.
 
+## [0.2.2] - 2026-07-16
+
+### Added
+- **`open-pr` command** (`penv open-pr [--branch <name>]`) — finds the GitHub PR for the current (or specified) branch via `gh pr view`; exits with an error when no PR exists; no configuration required
+- **`open_pr()` shell function** injected into every dev session helper script alongside `open_ticket`
+- `open_pr — open GitHub PR in browser` always shown in the `show_info` box (unconditional, unlike `open_ticket`)
+- `DevUiArgs.worktree_path: Option<PathBuf>` — callers can pre-select a worktree to bypass the interactive picker inside `run()`
+- `DevBackendArgs.worktree_branch: Option<String>` — same bypass for the backend worktree branch picker
+- `validate` command (`penv validate`) — validates `settings.json` against its declared `$schema` path
+
+### Fixed
+- `settings.schema.json`: added `$schema` as an allowed top-level property (fixes VS Code "property $schema is not allowed")
+- `settings.schema.json`: added `panes` array to `dev_ui`; removed `pane_git_cmd` from `dev_backend`
+- Clippy: `map_or(false, …)` → `is_some_and(…)`, `#[derive(Default)]` on `SessionNotes`, `.last()` → `.next_back()` on `DoubleEndedIterator`, unused `_parent` bindings
+
+### Removed
+- `DevBackendConfig.pane_git_cmd` and the auto-generated git window in `dev-backend` — configure lazygit panes directly in the `sessions` block instead
+
 ## [0.2.1] - 2026-07-16
 
 ### Added
