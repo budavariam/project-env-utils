@@ -7,6 +7,10 @@
   "required": ["project"],
   "additionalProperties": false,
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference."
+    },
     "project": {
       "type": "object",
       "description": "Top-level project metadata.",
@@ -88,6 +92,12 @@
         "pane_sb_cmd": {
           "type": "string",
           "description": "Command run in the Storybook pane (e.g. 'npm run storybook')."
+        },
+        "panes": {
+          "type": "array",
+          "description": "Grid panes for the dev-ui session.",
+          "items": { "$ref": "#/$defs/gridPane" },
+          "default": []
         }
       },
       "default": {}
@@ -122,6 +132,100 @@
       "items": { "$ref": "#/$defs/session" },
       "default": []
     },
+    "vscode": {
+      "type": "object",
+      "description": "VS Code workspace generation config. Used by 'penv workspace open/wizard'.",
+      "additionalProperties": false,
+      "properties": {
+        "output_file": {
+          "type": "string",
+          "default": "workspace.code-workspace",
+          "description": "Filename (relative to the repo parent directory) for the generated workspace file."
+        },
+        "peacock_color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Hex color for the VS Code Peacock extension (e.g. '#a0927a'). Emitted as peacock.color in the workspace settings block."
+        },
+        "extra_settings": {
+          "type": "object",
+          "description": "Arbitrary VS Code workspace settings merged verbatim into the 'settings' block of every generated workspace file (e.g. workbench.colorCustomizations, files.exclude).",
+          "additionalProperties": true
+        },
+        "groups": {
+          "type": "array",
+          "description": "Named repo groups for --group <name>=<branch>. When absent, 'ui' (from dev_ui.repo) and 'backend' (from dev_backend) are auto-derived.",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["name", "repos"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "description": "Group name used with --group <name>=<branch>." },
+              "repos": { "type": "array", "items": { "type": "string" }, "description": "Service repo names belonging to this group." }
+            }
+          }
+        },
+        "extra_folders": {
+          "type": "array",
+          "description": "Repos beyond the penv services to include by default. Each path is relative to the repo parent directory.",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Display name shown in VS Code's Explorer sidebar. Defaults to the folder basename."
+              },
+              "path": {
+                "type": "string",
+                "description": "Folder path relative to the repo parent directory."
+              }
+            }
+          }
+        },
+        "presets": {
+          "type": "array",
+          "description": "Named subsets of repos. Use 'penv workspace open --preset <name>' to open one. Saved automatically by 'penv workspace wizard --save <name>'.",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["name", "folders"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Unique preset identifier. Used with --preset."
+              },
+              "folders": {
+                "type": "array",
+                "description": "Repos/folders to include. Each entry is either a bare repo name (string) or an object with a per-folder worktree branch override.",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "description": "Repo name matching a service name or extra_folder path/name. Uses the global --branch when --worktree is active."
+                    },
+                    {
+                      "type": "object",
+                      "required": ["repo", "branch"],
+                      "additionalProperties": false,
+                      "description": "Pin this repo to a specific worktree branch, independent of --branch.",
+                      "properties": {
+                        "repo": { "type": "string", "description": "Service repo name (must match services[].name)." },
+                        "branch": { "type": "string", "description": "Worktree branch to use (e.g. 'feat/my-feature')." }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "claude": {
       "type": "object",
       "description": "Linked-window config that attaches an external tmux session window (e.g. a Claude Code session) into dev sessions.",
@@ -153,6 +257,21 @@
         }
       },
       "default": {}
+    },
+    "ticket_manager": {
+      "type": "object",
+      "description": "Optional ticket manager integration. When configured, dev session info boxes show an 'open_ticket' command that opens the ticket URL extracted from the current branch name.",
+      "additionalProperties": false,
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "Regex applied to the branch name to extract the ticket ID (first match). Examples: Wrike numeric: \"\\\\d+\", Jira: \"[A-Z]+-\\\\d+\"."
+        },
+        "url_template": {
+          "type": "string",
+          "description": "URL template where {ticket} is replaced with the matched ID. Example: \"https://www.wrike.com/open.htm?id={ticket}\"."
+        }
+      }
     }
   },
   "$defs": {
