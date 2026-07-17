@@ -321,6 +321,58 @@ Shell scripts in the same dir call `./myenv` and need no environment setup:
 
 ---
 
+## Using a git submodule (recommended for project wrappers)
+
+Instead of keeping `project-env-utils` as a sibling directory and relying on a relative `../` path, you can embed it as a git submodule inside your wrapper repo. This gives you a single checkout location and keeps the Cargo path self-contained.
+
+### Initial setup
+
+```bash
+cd my-project-env
+git submodule add git@github.com:budavariam/project-env-utils.git project-env-utils
+```
+
+Then update `Cargo.toml` to use the local path:
+
+```toml
+[workspace]
+resolver = "2"
+exclude = ["project-env-utils"]   # prevent Cargo treating it as a second workspace root
+
+[package]
+# ...
+
+[dependencies]
+penv = { path = "project-env-utils", package = "project-env-utils" }
+```
+
+The `exclude` entry is required because `project-env-utils` has its own `[workspace]` section — without it Cargo will refuse to build with "multiple workspace roots" error.
+
+### Cloning on a new machine
+
+```bash
+git clone --recursive git@your-host/my-project-env.git
+# or if you already cloned without --recursive:
+git submodule update --init
+```
+
+### Keeping the submodule up to date
+
+When `project-env-utils` has new commits you want to pull in:
+
+```bash
+cd project-env-utils
+git pull origin main
+cd ..
+git add project-env-utils
+git commit -m "chore: bump project-env-utils"
+git push
+```
+
+The submodule pointer in your wrapper is pinned to a specific commit, so builds are always reproducible. The two-step push (first push penv, then bump the pointer in the wrapper) is the only extra cost compared to a plain path dependency.
+
+---
+
 ## Keeping your wrapper in sync
 
 When you add a new command to `project-env-utils`:
