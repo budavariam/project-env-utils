@@ -11,7 +11,7 @@ use crate::cmd::pick_preset::{resolve_backend_preset, resolve_workspace_preset};
 use crate::cmd::show_info::SessionNotes;
 use crate::cmd::worktree::{
     branch_to_safe, current_branch, ensure_worktree, pick_branch_fzf, pick_existing_worktree_fzf,
-    stash_and_checkout, write_close_session_script, write_teardown_script,
+    stash_and_checkout, worktree_or_root, write_close_session_script, write_teardown_script,
 };
 use crate::config::{Settings, repo_parent, repo_root};
 use crate::env_file::sh_escape;
@@ -63,8 +63,10 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     // ── Resolve workspace ────────────────────────────────────────────────────
 
     let (backend_dirs, session, is_worktree) = if args.worktree {
-        // --worktree: pick from existing Claude worktrees in the primary repo,
-        // or use the pre-selected branch passed by the caller.
+        // --worktree: open an existing Claude worktree. The branch is either
+        // pre-selected by the caller (worktree_branch) or picked interactively
+        // from the primary repo. For repos that don't have the branch's worktree,
+        // fall back to their root directory rather than creating a new branch.
         let primary_repo = root.join(&cfg.window_backend[0].repo);
         let branch = match args.worktree_branch.clone() {
             Some(b) => b,
@@ -75,8 +77,8 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         let mut dirs = Vec::new();
         for pane in &cfg.window_backend {
             let repo_dir = root.join(&pane.repo);
-            let wt = ensure_worktree(&repo_dir, &branch)?;
-            eprintln!("  {} → {} (branch: {})", pane.repo, wt.display(), branch);
+            let wt = worktree_or_root(&repo_dir, &branch);
+            eprintln!("  {} → {}", pane.repo, wt.display());
             dirs.push(wt);
         }
         (dirs, session, true)
@@ -154,6 +156,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
                 preset_name = p;
             }
         }
+
         preset_name
     } else {
         resolve_backend_preset(args.preset.as_deref(), bref, settings)?

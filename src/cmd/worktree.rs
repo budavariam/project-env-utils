@@ -401,6 +401,55 @@ pub fn ensure_worktree(repo_dir: &Path, branch: &str) -> Result<PathBuf> {
 }
 
 /// Parse `git worktree list --porcelain` and return the path where `branch` is checked out.
+/// Return the worktree path for `branch` if it already exists in this repo,
+/// or fall back to the root repo dir — never creates a new branch or worktree.
+/// Use this for secondary repos in a multi-repo session where only the primary
+/// is guaranteed to have the feature branch.
+pub fn worktree_or_root(repo_dir: &Path, branch: &str) -> PathBuf {
+    let wt = worktree_path(repo_dir, branch);
+    if wt.exists() {
+        eprintln!("  {} → {} (branch: {})", repo_dir.display(), wt.display(), branch);
+        return wt;
+    }
+    if let Ok(Some(existing)) = find_worktree_for_branch(repo_dir, branch) {
+        if existing != repo_dir {
+            eprintln!("  {} → {} (branch: {})", repo_dir.display(), existing.display(), branch);
+            return existing;
+        }
+    }
+    eprintln!("  {} → {} (root, no worktree for {})", repo_dir.display(), repo_dir.display(), branch);
+    repo_dir.to_path_buf()
+}
+
+/// Collect all branch names that have a Claude worktree in any of the given repos.
+/// Returns deduplicated branch names (used to drive an fzf picker when the primary
+/// repo may have no worktrees but a secondary does).
+pub fn worktree_branches_any(repo_dirs: &[PathBuf]) -> Vec<String> {
+    let mut branches: Vec<String> = Vec::new();
+    for repo_dir in repo_dirs {
+        let wt_base = repo_dir.join(".claude").join("worktrees");
+        let Ok(entries) = std::fs::read_dir(&wt_base) else { continue };
+        for entry in entries.filter_map(|e| e.ok()) {
+            if !entry.path().is_dir() { continue; }
+            let wt_path = entry.path();
+            let branch = Command::new("git")
+                .args(["-C", &wt_path.to_string_lossy(), "branch", "--show-current"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if s.is_empty() { None } else { Some(s) }
+                });
+            if let Some(b) = branch {
+                if !branches.contains(&b) {
+                    branches.push(b);
+                }
+            }
+        }
+    }
+    branches
+}
+
 fn find_worktree_for_branch(repo_dir: &Path, branch: &str) -> Result<Option<PathBuf>> {
     let repo_s = repo_dir.to_string_lossy();
     let out = Command::new("git")

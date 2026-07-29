@@ -211,6 +211,29 @@ pub fn resolve_workspace_preset(
             preset
         );
     }
+
+    // Copy service files (e.g. key files) from the root repo into the workspace.
+    // Mirrors what load_service does for root repos so worktrees get the same files.
+    let ws_path = Path::new(workspace);
+    let root_repo = crate::config::repo_parent().join(service);
+    let files = settings.project.services.iter()
+        .find(|s| s.name == service)
+        .map(|s| s.files.as_slice())
+        .unwrap_or(&[]);
+    for file_cfg in files {
+        let src = root_repo.join(&file_cfg.path);
+        let dst = ws_path.join(&file_cfg.path);
+        if src.exists() && !dst.exists() {
+            if let Some(parent) = dst.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::copy(&src, &dst) {
+                Ok(_) => err(&format!("  copied {}/{}", service, file_cfg.path)),
+                Err(e) => err(&format!("  warn: could not copy {}/{}: {}", service, file_cfg.path, e)),
+            }
+        }
+    }
+
     Ok(preset)
 }
 
