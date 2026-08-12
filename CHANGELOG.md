@@ -2,6 +2,23 @@
 
 All notable changes to project-env-utils are documented here.
 
+## [0.2.4] - 2026-08-12
+
+### Added
+- **`validate-cache`** command — diffs every `local/<project>/<service>/<preset>.env` against the active backend (SQLite by default); exits non-zero if anything is out of sync
+- **`validate-cache --fix`** — pushes local cache → backend for differing pairs, backing up the old backend content to `backups/<ts>-validate-cache-fix/` first
+- **`no_attach`** field on `DevBackendArgs` and `DevUiArgs` — allows callers to start a session without exec-ing into it (used by the combined launcher in project-specific wrappers)
+
+### Fixed
+- **`resolve_backend_preset`** (root checkout) now skips auto-loading `.env` when the repo's `.env` is newer than the local cache — matching the existing behaviour of `resolve_workspace_preset` for worktrees; `startup_sync_check` then handles the diff interactively
+- **Session-exists guard** in `dev_backend::run()` and `dev_ui::run()` now respects `no_attach` — returns `Ok(())` instead of exec-ing when the caller manages attaching
+
+## [0.2.3] - 2026-08-07
+
+### Added
+- **`--branch <name>` implies `--checkout`** in `dev-ui` and `dev-backend` — shorthand that stashes and checks out a branch without requiring the explicit `--checkout` flag
+- **`dev-backend --checkout` prompts per-repo** when `--branch` is not given — each repo in `window_backend` gets its own fzf branch picker, enabling independent branch selection (e.g. `api` and `apps-api` can land on different branches)
+
 ## [0.2.2] - 2026-07-16
 
 ### Added

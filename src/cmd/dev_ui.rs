@@ -31,6 +31,8 @@ pub struct DevUiArgs {
     /// Callers that need to know the UI branch before `run()` (e.g. to open VS Code
     /// with the right group arg) can resolve the worktree themselves and pass it here.
     pub worktree_path: Option<std::path::PathBuf>,
+    /// Skip the final tmux attach (used when a caller starts multiple sessions and attaches separately).
+    pub no_attach: bool,
 }
 
 // ── run() ─────────────────────────────────────────────────────────────────────
@@ -100,8 +102,8 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             session
         );
         (wt, session, true)
-    } else if args.checkout {
-        // --checkout: stash changes if needed and checkout branch in the root repo.
+    } else if args.checkout || args.checkout_branch.is_some() {
+        // --checkout / --branch <name>: stash changes and checkout branch in the root repo.
         let branch = args
             .checkout_branch
             .clone()
@@ -137,7 +139,10 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     if mux.session_exists(&session) {
         eprintln!("Session '{}' already exists. Attaching...", session);
-        mux.attach(&session);
+        if !args.no_attach {
+            mux.attach(&session);
+        }
+        return Ok(());
     }
 
     // ── Create session with 2×2 pane grid ────────────────────────────────────
@@ -250,7 +255,10 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
 
     mux.select_window(&session, 0)?;
     mux.select_pane(p_shell)?;
-    mux.attach(&session);
+    if !args.no_attach {
+        mux.attach(&session);
+    }
+    Ok(())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────

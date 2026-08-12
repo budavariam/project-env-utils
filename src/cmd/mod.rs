@@ -15,4 +15,5 @@ pub mod setup_wizard;
 pub mod show_info;
 pub mod sync;
 pub mod validate;
+pub mod validate_cache;
 pub mod worktree;

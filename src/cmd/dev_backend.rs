@@ -32,6 +32,8 @@ pub struct DevBackendArgs {
     pub attach: bool,
     /// Pre-selected worktree branch; bypasses the interactive picker when set with `worktree: true`.
     pub worktree_branch: Option<String>,
+    /// Skip the final tmux attach (used when a caller starts multiple sessions and attaches separately).
+    pub no_attach: bool,
 }
 
 // ── run() ─────────────────────────────────────────────────────────────────────
@@ -111,19 +113,27 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
             dirs.push(wt);
         }
         (dirs, session, true)
-    } else if args.checkout {
-        // --checkout: stash changes if needed and checkout branch in the root repos.
-        let primary_repo = root.join(&cfg.window_backend[0].repo);
-        let branch = args
-            .checkout_branch
-            .clone()
-            .map(Ok)
-            .unwrap_or_else(|| pick_branch_fzf(&primary_repo))?;
+    } else if args.checkout || args.checkout_branch.is_some() {
+        // --checkout / --branch <name>: stash changes and checkout branch in root repos.
+        // With --branch: same branch for every repo. Without: fzf per-repo so each can
+        // land on a different branch (useful when backend repos diverge).
+        let branches: Vec<String> = match &args.checkout_branch {
+            Some(b) => {
+                eprintln!("Checking out '{}' in backend repos...", b);
+                vec![b.clone(); cfg.window_backend.len()]
+            }
+            None => cfg
+                .window_backend
+                .iter()
+                .map(|pane| {
+                    eprintln!("Pick branch for {}:", pane.repo);
+                    pick_branch_fzf(&root.join(&pane.repo))
+                })
+                .collect::<Result<Vec<_>>>()?,
+        };
 
-        eprintln!("Checking out '{}' in backend repos...", branch);
-        for pane in &cfg.window_backend {
-            let repo_dir = root.join(&pane.repo);
-            stash_and_checkout(&repo_dir, &branch)?;
+        for (pane, branch) in cfg.window_backend.iter().zip(branches.iter()) {
+            stash_and_checkout(&root.join(&pane.repo), branch)?;
         }
 
         let dirs: Vec<PathBuf> = cfg
@@ -174,7 +184,10 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
 
     if mux.session_exists(&session) {
         eprintln!("Session '{}' already exists. Attaching...", session);
-        mux.attach(&session);
+        if !args.no_attach {
+            mux.attach(&session);
+        }
+        return Ok(());
     }
 
     let root_s = root.to_string_lossy().into_owned();
@@ -335,7 +348,10 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     // ── Focus and attach ──────────────────────────────────────────────────────
 
     mux.select_window(&session, 0)?;
-    mux.attach(&session);
+    if !args.no_attach {
+        mux.attach(&session);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

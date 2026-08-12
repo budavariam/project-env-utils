@@ -97,13 +97,13 @@ enum Command {
         /// Open the session in an existing Claude worktree
         #[arg(long, group = "mode")]
         worktree: bool,
-        /// Checkout a branch in the root repo (stash first), open session there
+        /// Checkout a branch in the root repo (stash first); fzf if --branch not given
         #[arg(long, group = "mode")]
         checkout: bool,
         /// Checkout a branch into a new/existing Claude worktree
         #[arg(long, alias = "worktree-checkout", group = "mode")]
         checkout_worktree: bool,
-        /// Branch for --checkout or --checkout-worktree (prompts if omitted)
+        /// Branch to checkout; implies --checkout when used without a mode flag
         #[arg(long)]
         branch: Option<String>,
         /// Attach to an existing dev-ui session instead of creating a new one
@@ -127,13 +127,13 @@ enum Command {
         /// Open the session in an existing Claude worktree
         #[arg(long, group = "mode")]
         worktree: bool,
-        /// Checkout a branch in the root repos (stash first), open session there
+        /// Checkout a branch in root repos (stash first); fzf per-repo if --branch not given
         #[arg(long, group = "mode")]
         checkout: bool,
         /// Checkout a branch into a new/existing Claude worktrees
         #[arg(long, alias = "worktree-checkout", group = "mode")]
         checkout_worktree: bool,
-        /// Branch for --checkout or --checkout-worktree (prompts if omitted)
+        /// Branch to checkout; implies --checkout when used without a mode flag
         #[arg(long)]
         branch: Option<String>,
         /// Attach to an existing dev-backend session instead of creating a new one
@@ -177,6 +177,13 @@ enum Command {
 
     /// Validate settings.json against settings.schema.json
     Validate,
+
+    /// Check that every local/<project>/<service>/<preset>.env matches the active backend (default: SQLite)
+    ValidateCache {
+        /// Push local cache → backend for any pair that differs
+        #[arg(long)]
+        fix: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -312,7 +319,7 @@ fn main() {
                 preset: preset.clone(),
                 worktree: *worktree,
                 checkout: *checkout,
-                checkout_branch: if *checkout { branch.clone() } else { None },
+                checkout_branch: branch.clone(),
                 checkout_worktree: *checkout_worktree,
                 checkout_worktree_branch: if *checkout_worktree {
                     branch.clone()
@@ -321,6 +328,7 @@ fn main() {
                 },
                 attach: *attach,
                 worktree_path: None,
+                no_attach: false,
             },
             &settings,
         ),
@@ -337,7 +345,7 @@ fn main() {
                 preset: preset.clone(),
                 worktree: *worktree,
                 checkout: *checkout,
-                checkout_branch: if *checkout { branch.clone() } else { None },
+                checkout_branch: branch.clone(),
                 checkout_worktree: *checkout_worktree,
                 checkout_worktree_branch: if *checkout_worktree {
                     branch.clone()
@@ -346,6 +354,7 @@ fn main() {
                 },
                 attach: *attach,
                 worktree_branch: None,
+                no_attach: false,
             },
             &settings,
         ),
@@ -383,6 +392,17 @@ fn main() {
         Command::OpenPr { branch } => cmd::open_pr::run(branch.as_deref()),
 
         Command::Validate => cmd::validate::run(),
+
+        Command::ValidateCache { fix } => {
+            let backend_box = crate::backend::active_backend(&settings);
+            match backend_box.as_deref() {
+                Some(b) => cmd::validate_cache::run(*fix, b, &settings),
+                None => {
+                    eprintln!("No backend configured (set secret_backend in settings.json).");
+                    std::process::exit(1);
+                }
+            }
+        }
     };
 
     if let Err(e) = result {

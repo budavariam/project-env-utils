@@ -216,7 +216,10 @@ pub fn resolve_workspace_preset(
     // Mirrors what load_service does for root repos so worktrees get the same files.
     let ws_path = Path::new(workspace);
     let root_repo = crate::config::repo_parent().join(service);
-    let files = settings.project.services.iter()
+    let files = settings
+        .project
+        .services
+        .iter()
         .find(|s| s.name == service)
         .map(|s| s.files.as_slice())
         .unwrap_or(&[]);
@@ -229,7 +232,10 @@ pub fn resolve_workspace_preset(
             }
             match std::fs::copy(&src, &dst) {
                 Ok(_) => err(&format!("  copied {}/{}", service, file_cfg.path)),
-                Err(e) => err(&format!("  warn: could not copy {}/{}: {}", service, file_cfg.path, e)),
+                Err(e) => err(&format!(
+                    "  warn: could not copy {}/{}: {}",
+                    service, file_cfg.path, e
+                )),
             }
         }
     }
@@ -267,6 +273,21 @@ pub fn resolve_backend_preset(
 
     for pane in window_backend {
         let dest = settings.project.service_env_path(&pane.repo, None);
+
+        let cache = settings.project.preset_local_path(&pane.repo, &preset);
+        let dest_mtime = std::fs::metadata(&dest).and_then(|m| m.modified()).ok();
+        let cache_mtime = std::fs::metadata(&cache).and_then(|m| m.modified()).ok();
+        let user_edited = matches!((dest_mtime, cache_mtime), (Some(d), Some(c)) if d > c)
+            || matches!((dest_mtime, cache_mtime), (Some(_), None) if dest.exists());
+        if user_edited {
+            err(&format!(
+                "  {} [{}]: .env is newer than cache — skipping auto-load, will sync-check",
+                pane.repo, preset
+            ));
+            let _ = set_service_preset(&pane.repo, &preset);
+            continue;
+        }
+
         let (ok, status) = load_service_for_pick(&pane.repo, &preset, &dest, backend, settings);
         err(&format!(
             "  loaded {} [{}] → {:?}  ({})",
