@@ -2,7 +2,32 @@
 
 All notable changes to project-env-utils are documented here.
 
-## [0.2.4] - 2026-08-12
+## [0.3.0] - 2026-09-24
+
+### Added
+- **`workspace` command** (`penv workspace open / wizard / guide`) — generates VS Code `.code-workspace` files with worktree-aware folder paths, Peacock color picker, per-group branch overrides (`--group ui=branch`), and named preset support
+- **`dev-ui-ext` / `dev-backend-ext`** — VS Code integration wrappers: prompt whether to open a workspace and which worktree to use before starting the tmux session; `DevUi` and `DevBackend` now route through these by default
+- **`local_dir` top-level setting** in `settings.json` — overrides the default `local/<project_name>` preset store with a flat `<local_dir>/<service>/<preset>.env` path; accepts absolute or relative paths
+- **`title` field on `GridPaneConfig` and `SessionPaneConfig`** — sets the tmux pane border title via `select-pane -T` and `@pane_name` user option; falls back to `repo` when absent
+- **`dev-session` workspace flags** (`--worktree`, `--checkout`, `--checkout-worktree`, `--branch`, `--mixed`) — resolve each repo's working directory per-mode before launching panes; `--mixed` prompts interactively
+- **`WorkspaceMode` enum** + `pick_workspace_mode()`, `mode_from_flags()`, `resolve_repo_workspace()` in `worktree.rs` — shared primitives for consistent workspace mode handling across commands
+- **`change_preset`** now shows `(current)` marker next to the active preset
+- **`list_presets`** command wired into the penv CLI (`penv list-presets [service]`)
+- **`PENV_REPO_ROOT` injection** in all tmux session helper scripts and `show-info` calls — pane commands find `settings.json` regardless of which directory the pane starts in
+- **Pane title persistence** via `tmux set-option -p -t <pane> @pane_name <title>` — immune to shell `preexec` overrides; pair with `pane-border-format " #{?#{@pane_name},#{@pane_name},#T} "` in `tmux.conf`
+- **`dev-session` info bar** — always shown; creates a dedicated `shell` window when all configured grid positions are filled
+- **Demo** fully configured: `start.sh`, `load-env.sh`, `dev-ui.sh`, `dev-backend.sh`, `dev-session.sh`, `start-vscode.sh`; `dev` and `test` presets via `local_dir=env`; pane titles throughout
+
+### Fixed
+- **`change_preset` / `list_presets` / `validate_cache`** — now call `available_presets_for_service()` so the `local_dir` override is respected everywhere
+- **`dev-session` info bar** missing when all pane positions were occupied — falls back to a new `shell` window
+- **`PENV_REPO_ROOT` not inherited by tmux panes** — injected as `PENV_REPO_ROOT='...'` prefix in `show-info` calls and as `export PENV_REPO_ROOT=...` in helper scripts
+- **`tmux set-option` flag syntax** — was `-pt` (single argument); corrected to `-p -t` (separate flags) so `@pane_name` is actually stored
+
+### Changed
+- `penv dev-ui` and `penv dev-backend` now open a VS Code workspace prompt before starting the tmux session (behaviour added by the ext wrappers; pass `--attach` to skip)
+- `settings.schema.json`: added `local_dir`, `title`; removed stale `pane_dev_cmd` / `pane_sb_cmd` from `dev_ui`
+
 
 ### Added
 - **`validate-cache`** command — diffs every `local/<project>/<service>/<preset>.env` against the active backend (SQLite by default); exits non-zero if anything is out of sync
