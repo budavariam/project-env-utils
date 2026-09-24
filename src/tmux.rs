@@ -27,6 +27,15 @@ pub trait Mux: Send + Sync {
     }
     fn send_keys(&self, target: &str, cmd: &str) -> Result<()>;
 
+    /// Set a human-readable title on a pane (shown in pane border when pane-border-status is on).
+    /// Sets both the tmux pane title (select-pane -T) and a user pane variable @pane_name.
+    /// Using @pane_name in pane-border-format avoids shell preexec overriding the title:
+    ///   set -g pane-border-format " #{?#{@pane_name},#{@pane_name},#T} "
+    /// Default is a no-op so backends that don't support it compile without changes.
+    fn set_pane_title(&self, _target: &str, _title: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// Replace the current process with an attach command. Never returns.
     fn attach(&self, session: &str) -> !;
 
@@ -221,6 +230,12 @@ impl Mux for TmuxLike {
 
     fn send_keys(&self, target: &str, cmd: &str) -> Result<()> {
         self.run(&["send-keys", "-t", target, cmd, "Enter"])
+    }
+
+    fn set_pane_title(&self, target: &str, title: &str) -> Result<()> {
+        // Set both the tmux pane title and a user variable immune to shell overrides.
+        self.run(&["select-pane", "-T", title, "-t", target]).ok();
+        self.run(&["set-option", "-p", "-t", target, "@pane_name", title])
     }
 
     fn attach(&self, session: &str) -> ! {

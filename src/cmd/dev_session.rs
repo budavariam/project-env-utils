@@ -8,7 +8,10 @@ use anyhow::{Result, bail};
 use crate::cmd::open_ticket::extract_ticket;
 use crate::cmd::pick_preset::resolve_backend_preset;
 use crate::cmd::show_info::SessionNotes;
-use crate::cmd::worktree::write_close_session_script;
+use crate::cmd::worktree::{
+    WorkspaceMode, mode_from_flags, pick_workspace_mode, resolve_repo_workspace,
+    write_close_session_script,
+};
 use crate::config::{Settings, repo_parent, repo_root};
 use crate::env_file::sh_escape;
 use crate::tmux::{active_mux, setup_linked_window};
@@ -19,6 +22,16 @@ pub struct DevSessionArgs {
     pub session_name: Option<String>,
     pub preset: Option<String>,
     pub attach: bool,
+    /// Open repos in existing Claude worktrees.
+    pub worktree: bool,
+    /// Stash + checkout a branch in root repos.
+    pub checkout: bool,
+    /// Create/open Claude worktrees for repos.
+    pub checkout_worktree: bool,
+    /// Branch to use with --checkout or --checkout-worktree.
+    pub branch: Option<String>,
+    /// Interactively pick a workspace mode (overrides the other mode flags).
+    pub mixed: bool,
 }
 
 // ── run() ─────────────────────────────────────────────────────────────────────
@@ -102,6 +115,27 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             .collect()
     };
 
+    // ── Workspace mode ────────────────────────────────────────────────────────
+    // Determine how to resolve each repo's working directory.
+    let mode: WorkspaceMode = if args.mixed {
+        eprintln!("Session workspace mode:");
+        pick_workspace_mode("Mode> ")?
+    } else {
+        mode_from_flags(args.worktree, args.checkout, args.checkout_worktree, &args.branch)
+    };
+
+    // Pre-resolve each unique repo's working directory.
+    let repo_dirs: std::collections::HashMap<String, std::path::PathBuf> = {
+        let mut map = std::collections::HashMap::new();
+        for svc in &all_services {
+            let repo_dir = root.join(svc);
+            let resolved = resolve_repo_workspace(&repo_dir, &mode, args.branch.as_deref())
+                .unwrap_or(repo_dir);
+            map.insert(svc.clone(), resolved);
+        }
+        map
+    };
+
     if !session_cfg.no_preset {
         let sync_items: Vec<(&str, Option<&str>)> =
             all_services.iter().map(|s| (s.as_str(), None)).collect();
@@ -174,8 +208,14 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             let dir = if pane_cfg.repo.is_empty() {
                 default_dir.to_string()
             } else {
-                root.join(&pane_cfg.repo).to_string_lossy().into_owned()
+                repo_dirs
+                    .get(&pane_cfg.repo)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| root.join(&pane_cfg.repo).to_string_lossy().into_owned())
             };
+            if !pane_cfg.repo.is_empty() {
+                mux.set_pane_title(pane_id, pane_cfg.pane_title()).ok();
+            }
             mux.send_keys(
                 pane_id,
                 &format!("cd '{}' && {}", sh_escape(&dir), pane_cfg.cmd),
@@ -184,67 +224,75 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     }
 
     // ── Helper script in idle shell ───────────────────────────────────────────
+    // Use the first idle pane found, or open a dedicated "shell" window when
+    // the user's layout fills every grid position.
 
-    if let Some(pane_id) = &helper_pane {
-        let helper_path = format!("/tmp/dev-session-helper-{}", session);
-        let svc_refs: Vec<&str> = all_services.iter().map(|s| s.as_str()).collect();
-        let services_arg = all_services
-            .iter()
-            .map(|s| format!("'{}'", s))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let message_arg = if session_cfg.message.is_empty() {
-            String::new()
-        } else {
-            format!(
-                " --message '{}'",
-                session_cfg.message.replace('\'', "'\\''")
-            )
-        };
+    let helper_pane: String = if let Some(pane_id) = helper_pane {
+        pane_id
+    } else {
+        mux.new_window(session, "shell", default_dir)?;
+        mux.first_pane_id(session, session_cfg.tabs.len() as u32)?
+    };
 
-        let tm = &settings.project.ticket_manager;
-        let has_ticket = tm.is_configured() && {
-            // Check first service's current branch for a ticket ID.
-            all_services.first().is_some_and(|svc| {
-                let branch =
-                    crate::cmd::worktree::current_branch(&root.join(svc)).unwrap_or_default();
-                extract_ticket(&tm.pattern, &branch).is_some()
-            })
-        };
+    let helper_path = format!("/tmp/dev-session-helper-{}", session);
+    let svc_refs: Vec<&str> = all_services.iter().map(|s| s.as_str()).collect();
+    let services_arg = all_services
+        .iter()
+        .map(|s| format!("'{}'", s))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let message_arg = if session_cfg.message.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " --message '{}'",
+            session_cfg.message.replace('\'', "'\\''")
+        )
+    };
 
-        let notes = SessionNotes::new()
-            .add("reload_env", "reload .env from current preset")
-            .add("change_preset", "switch preset")
-            .add("close_session", "close session")
-            .add("show_info", "re-display this box")
-            .add("inspect_env", "inspect env file ages")
-            .add_if(has_ticket, "open_ticket", "open ticket in browser")
-            .add("open_pr", "open GitHub PR in browser");
+    let tm = &settings.project.ticket_manager;
+    let has_ticket = tm.is_configured() && {
+        // Check first service's current branch for a ticket ID.
+        all_services.first().is_some_and(|svc| {
+            let branch =
+                crate::cmd::worktree::current_branch(&root.join(svc)).unwrap_or_default();
+            extract_ticket(&tm.pattern, &branch).is_some()
+        })
+    };
 
-        let show_info_fn_cmd = format!(
-            "'{}' show-info --preset '{}' --services {}{} --notes {} ||:",
-            sh_escape(&penv),
-            sh_escape(&preset),
-            services_arg,
-            message_arg,
-            notes.to_show_info_args(),
-        );
-        write_close_session_script(
-            &helper_path,
-            session,
-            &penv,
-            &preset,
-            &svc_refs,
-            &show_info_fn_cmd,
-        )?;
-        mux.send_keys(
-            pane_id,
-            &format!(
-                "{}; source '{}'; rm -f '{}'",
-                show_info_fn_cmd, helper_path, helper_path,
-            ),
-        )?;
-    }
+    let notes = SessionNotes::new()
+        .add("reload_env", "reload .env from current preset")
+        .add("change_preset", "switch preset")
+        .add("close_session", "close session")
+        .add("show_info", "re-display this box")
+        .add("inspect_env", "inspect env file ages")
+        .add_if(has_ticket, "open_ticket", "open ticket in browser")
+        .add("open_pr", "open GitHub PR in browser");
+
+    let show_info_fn_cmd = format!(
+        "PENV_REPO_ROOT='{}' '{}' show-info --preset '{}' --services {}{} --notes {} ||:",
+        sh_escape(&repo_root().to_string_lossy()),
+        sh_escape(&penv),
+        sh_escape(&preset),
+        services_arg,
+        message_arg,
+        notes.to_show_info_args(),
+    );
+    write_close_session_script(
+        &helper_path,
+        session,
+        &penv,
+        &preset,
+        &svc_refs,
+        &show_info_fn_cmd,
+    )?;
+    mux.send_keys(
+        &helper_pane,
+        &format!(
+            "{}; source '{}'; rm -f '{}'",
+            show_info_fn_cmd, helper_path, helper_path,
+        ),
+    )?;
 
     // ── Claude window + attach ────────────────────────────────────────────────
 
@@ -266,6 +314,7 @@ mod tests {
             cmd: cmd.to_string(),
             col,
             row,
+            title: None,
         }
     }
 

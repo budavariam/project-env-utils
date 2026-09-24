@@ -6,7 +6,7 @@ use std::io::{self, Write};
 
 use anyhow::Result;
 
-use crate::config::{Settings, available_presets_for_project};
+use crate::config::Settings;
 
 pub fn run(services: &[String], settings: &Settings) -> Result<()> {
     let project_name = &settings.project.project_name;
@@ -29,7 +29,7 @@ pub fn run(services: &[String], settings: &Settings) -> Result<()> {
         let mut seen = std::collections::HashSet::new();
         let mut out = Vec::new();
         for svc in &probe {
-            for p in available_presets_for_project(svc, project_name) {
+            for p in settings.project.available_presets_for_service(svc) {
                 if seen.insert(p.clone()) {
                     out.push(p);
                 }
@@ -55,10 +55,20 @@ pub fn run(services: &[String], settings: &Settings) -> Result<()> {
         return Ok(());
     }
 
+    // Collect which preset(s) are currently active for the probe services.
+    let current_presets: std::collections::HashSet<String> = {
+        let state = crate::state::State::load();
+        probe
+            .iter()
+            .filter_map(|svc| state.services.get(svc).cloned())
+            .collect()
+    };
+
     // Interactive menu.
     eprintln!("Available presets:");
     for (i, p) in presets.iter().enumerate() {
-        eprintln!("  [{}] {}", i + 1, p);
+        let marker = if current_presets.contains(p) { "  (current)" } else { "" };
+        eprintln!("  [{}] {}{}", i + 1, p, marker);
     }
 
     let choice = loop {

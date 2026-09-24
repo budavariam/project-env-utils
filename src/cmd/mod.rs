@@ -1,10 +1,13 @@
 pub mod change_preset;
 pub mod dev_backend;
+pub mod dev_backend_ext;
 pub mod dev_session;
 pub mod dev_ui;
+pub mod dev_ui_ext;
 pub mod env_age;
 pub mod export;
 pub mod init;
+pub mod list_presets;
 pub mod load_env;
 pub mod morning_check;
 pub mod op_sync;
@@ -17,3 +20,4 @@ pub mod sync;
 pub mod validate;
 pub mod validate_cache;
 pub mod worktree;
+pub mod workspace;

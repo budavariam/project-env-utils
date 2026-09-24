@@ -90,7 +90,7 @@ enum Command {
         services: Vec<String>,
     },
 
-    /// Launch the ui tmux dev session
+    /// Launch the ui tmux dev session (with optional VS Code integration)
     DevUi {
         #[arg(long)]
         preset: Option<String>,
@@ -120,7 +120,7 @@ enum Command {
     /// Export presets to service repos — prompts for preset per service
     Export,
 
-    /// Launch the backend tmux dev session
+    /// Launch the backend tmux dev session (with optional VS Code integration)
     DevBackend {
         #[arg(long)]
         preset: Option<String>,
@@ -141,6 +141,12 @@ enum Command {
         attach: bool,
     },
 
+    /// VS Code workspace management
+    Workspace {
+        #[command(subcommand)]
+        sub: WorkspaceSub,
+    },
+
     /// Launch a custom grid session defined in settings.json under 'sessions'
     DevSession {
         /// Session name (required when more than one session is configured)
@@ -151,6 +157,21 @@ enum Command {
         /// Attach to an existing session instead of creating a new one
         #[arg(long)]
         attach: bool,
+        /// Open repos in existing Claude worktrees
+        #[arg(long, group = "mode")]
+        worktree: bool,
+        /// Stash + checkout a branch in root repos; fzf if --branch not given
+        #[arg(long, group = "mode")]
+        checkout: bool,
+        /// Create/open Claude worktrees for repos
+        #[arg(long, alias = "worktree-checkout", group = "mode")]
+        checkout_worktree: bool,
+        /// Branch to use with --checkout or --checkout-worktree
+        #[arg(long)]
+        branch: Option<String>,
+        /// Interactively pick a workspace mode (root / checkout / worktree / checkout-worktree)
+        #[arg(long, group = "mode")]
+        mixed: bool,
     },
 
     /// Show env file ages across service repo, local cache, and backend
@@ -178,12 +199,60 @@ enum Command {
     /// Validate settings.json against settings.schema.json
     Validate,
 
+    /// List available preset names (one per line). Omit service for intersection across all services.
+    ListPresets {
+        /// Service to filter by (e.g. demo-api). Omit for presets common to all services.
+        service: Option<String>,
+    },
+
     /// Check that every local/<project>/<service>/<preset>.env matches the active backend (default: SQLite)
     ValidateCache {
         /// Push local cache → backend for any pair that differs
         #[arg(long)]
         fix: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum WorkspaceSub {
+    /// Interactive wizard: pick repos with fzf, write a .code-workspace file
+    Wizard {
+        /// Output path for the workspace file
+        #[arg(long)]
+        output: Option<String>,
+        /// Open the workspace in VS Code after creating it
+        #[arg(long)]
+        open: bool,
+        /// Save the selected repos as a named preset in settings.json (must be unique)
+        #[arg(long)]
+        save: Option<String>,
+    },
+    /// Generate workspace.code-workspace from settings.json and open it in VS Code
+    Open {
+        /// Use a saved preset (from vscode.presets in settings.json) instead of all repos
+        #[arg(long)]
+        preset: Option<String>,
+        /// All service repos use a Claude worktree (fzf branch picker unless --branch is set)
+        #[arg(long)]
+        worktree: bool,
+        /// Worktree branch for ALL service repos (implies --worktree)
+        #[arg(long)]
+        branch: Option<String>,
+        /// Pin a named group of repos to a specific worktree branch: --group <name>=<branch>
+        #[arg(long, value_name = "NAME=BRANCH")]
+        group: Vec<String>,
+        /// Auto-select the only available worktree without showing fzf
+        #[arg(long)]
+        ff: bool,
+        /// Override the Peacock color for this workspace (hex, e.g. #a0927a)
+        #[arg(long, value_name = "HEX")]
+        peacock_color: Option<String>,
+        /// Generate the workspace file without opening VS Code
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Step-by-step interactive guide: answers questions and opens the workspace
+    Guide,
 }
 
 #[derive(Subcommand)]
@@ -314,22 +383,13 @@ fn main() {
             checkout_worktree,
             branch,
             attach,
-        } => cmd::dev_ui::run(
-            &cmd::dev_ui::DevUiArgs {
-                preset: preset.clone(),
-                worktree: *worktree,
-                checkout: *checkout,
-                checkout_branch: branch.clone(),
-                checkout_worktree: *checkout_worktree,
-                checkout_worktree_branch: if *checkout_worktree {
-                    branch.clone()
-                } else {
-                    None
-                },
-                attach: *attach,
-                worktree_path: None,
-                no_attach: false,
-            },
+        } => cmd::dev_ui_ext::run_with_vscode_prompts(
+            preset.clone(),
+            *worktree,
+            *checkout,
+            *checkout_worktree,
+            branch.clone(),
+            *attach,
             &settings,
         ),
 
@@ -340,34 +400,65 @@ fn main() {
             checkout_worktree,
             branch,
             attach,
-        } => cmd::dev_backend::run(
-            &cmd::dev_backend::DevBackendArgs {
-                preset: preset.clone(),
-                worktree: *worktree,
-                checkout: *checkout,
-                checkout_branch: branch.clone(),
-                checkout_worktree: *checkout_worktree,
-                checkout_worktree_branch: if *checkout_worktree {
-                    branch.clone()
-                } else {
-                    None
-                },
-                attach: *attach,
-                worktree_branch: None,
-                no_attach: false,
-            },
+        } => cmd::dev_backend_ext::run_with_vscode_prompts(
+            preset.clone(),
+            *worktree,
+            *checkout,
+            *checkout_worktree,
+            branch.clone(),
+            *attach,
             &settings,
         ),
+
+        Command::Workspace { sub } => match sub {
+            WorkspaceSub::Wizard { output, open, save } => {
+                cmd::workspace::run_wizard(&settings, output.as_deref(), *open, save.as_deref())
+            }
+            WorkspaceSub::Open {
+                preset,
+                worktree,
+                branch,
+                group,
+                ff,
+                peacock_color,
+                no_open,
+            } => {
+                let use_global_wt = *worktree || branch.is_some();
+                cmd::workspace::parse_group_args(group).and_then(|group_pairs| {
+                    cmd::workspace::run_open(
+                        &settings,
+                        preset.as_deref(),
+                        use_global_wt,
+                        branch.as_deref(),
+                        &group_pairs,
+                        peacock_color.as_deref(),
+                        *no_open,
+                        *ff,
+                    )
+                })
+            }
+            WorkspaceSub::Guide => cmd::workspace::run_guide(&settings),
+        },
 
         Command::DevSession {
             session,
             preset,
             attach,
+            worktree,
+            checkout,
+            checkout_worktree,
+            branch,
+            mixed,
         } => cmd::dev_session::run(
             &cmd::dev_session::DevSessionArgs {
                 session_name: session.clone(),
                 preset: preset.clone(),
                 attach: *attach,
+                worktree: *worktree,
+                checkout: *checkout,
+                checkout_worktree: *checkout_worktree,
+                branch: branch.clone(),
+                mixed: *mixed,
             },
             &settings,
         ),
@@ -392,6 +483,10 @@ fn main() {
         Command::OpenPr { branch } => cmd::open_pr::run(branch.as_deref()),
 
         Command::Validate => cmd::validate::run(),
+
+        Command::ListPresets { service } => {
+            cmd::list_presets::run(service.as_deref(), &settings)
+        }
 
         Command::ValidateCache { fix } => {
             let backend_box = crate::backend::active_backend(&settings);

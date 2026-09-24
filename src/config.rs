@@ -56,6 +56,15 @@ pub struct ServiceConfig {
 pub struct SessionPaneConfig {
     pub repo: String,
     pub cmd: String,
+    /// Optional pane title shown in the tmux border. Defaults to `repo` when absent.
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+impl SessionPaneConfig {
+    pub fn pane_title(&self) -> &str {
+        self.title.as_deref().unwrap_or(&self.repo)
+    }
 }
 
 /// One pane in a flexible grid layout — at most 2 columns, unlimited rows.
@@ -73,6 +82,15 @@ pub struct GridPaneConfig {
     /// 0-based row index.
     #[serde(default)]
     pub row: usize,
+    /// Optional pane title shown in the tmux border. Defaults to `repo` when absent.
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+impl GridPaneConfig {
+    pub fn pane_title(&self) -> &str {
+        self.title.as_deref().unwrap_or(&self.repo)
+    }
 }
 
 /// One tmux window (tab) within a session.
@@ -179,6 +197,11 @@ pub struct ProjectConfig {
     pub sessions: Vec<SessionConfig>,
     /// Optional ticket manager integration (Wrike, Jira, etc.).
     pub ticket_manager: TicketManagerConfig,
+    /// Override the directory used to store local preset env files.
+    /// Absolute path, or relative to the directory containing settings.json.
+    /// When set, the path structure is `<local_dir>/<service>/<preset>.env`
+    /// (no project-name subfolder). Defaults to `local/<project_name>` when absent.
+    pub local_dir: Option<String>,
 }
 
 // ── Runtime paths ──────────────────────────────────────────────────────────────
@@ -294,6 +317,39 @@ pub fn project_config_file() -> PathBuf {
 // ── File path helpers ──────────────────────────────────────────────────────────
 
 impl ProjectConfig {
+    /// Base directory for local preset env files for a given service.
+    ///
+    /// - With `local_dir` set: `<local_dir>/<service>` (absolute or relative to repo_root)
+    /// - Default: `<repo_root>/local/<project_name>/<service>`
+    fn local_base(&self, service: &str) -> PathBuf {
+        match &self.local_dir {
+            Some(d) => {
+                let base = if std::path::Path::new(d).is_absolute() {
+                    PathBuf::from(d)
+                } else {
+                    repo_root().join(d)
+                };
+                base.join(service)
+            }
+            None => repo_root().join("local").join(&self.project_name).join(service),
+        }
+    }
+
+    /// Base directory for shared managed files (keys etc.).
+    fn local_shared_base(&self) -> PathBuf {
+        match &self.local_dir {
+            Some(d) => {
+                let base = if std::path::Path::new(d).is_absolute() {
+                    PathBuf::from(d)
+                } else {
+                    repo_root().join(d)
+                };
+                base.join("shared")
+            }
+            None => repo_root().join("local").join(&self.project_name).join("shared"),
+        }
+    }
+
     /// Resolve the `.env` path for a service, respecting the per-service `env_path` override
     /// in settings.json. Falls back to `<repo_parent>/<service>/.env` when unset.
     /// The `workspace` parameter takes precedence (used for UI worktrees).
@@ -309,32 +365,28 @@ impl ProjectConfig {
         repo_parent().join(service).join(custom.unwrap_or(".env"))
     }
 
-    /// `local/<project_name>/<service>/<preset>.env` — preset-specific local fallback (gitignored).
+    /// Preset-specific local env file path.
     pub fn preset_local_path(&self, service: &str, preset: &str) -> std::path::PathBuf {
-        repo_root()
-            .join("local")
-            .join(&self.project_name)
-            .join(service)
-            .join(format!("{}.env", preset))
+        self.local_base(service).join(format!("{}.env", preset))
     }
 
-    /// `local/<project_name>/<service>/local.env` — generic local fallback (gitignored, has secrets).
+    /// Generic local fallback env file path (`local.env`).
     pub fn local_fallback_path(&self, service: &str) -> std::path::PathBuf {
-        repo_root()
-            .join("local")
-            .join(&self.project_name)
-            .join(service)
-            .join("local.env")
+        self.local_base(service).join("local.env")
     }
 
     /// Relative display path for the preset local cache (for user-facing messages).
     pub fn preset_local_rel(&self, service: &str, preset: &str) -> String {
-        format!("local/{}/{}/{}.env", self.project_name, service, preset)
+        let base = self.local_base(service);
+        let rel = base.strip_prefix(repo_root()).unwrap_or(&base);
+        format!("{}/{}.env", rel.display(), preset)
     }
 
     /// Relative display path for the generic local fallback (for user-facing messages).
     pub fn local_fallback_rel(&self, service: &str) -> String {
-        format!("local/{}/{}/local.env", self.project_name, service)
+        let base = self.local_base(service);
+        let rel = base.strip_prefix(repo_root()).unwrap_or(&base);
+        format!("{}/local.env", rel.display())
     }
 
     /// Destination path for a managed file inside the service repo.
@@ -342,11 +394,7 @@ impl ProjectConfig {
         repo_parent().join(service).join(&file_cfg.path)
     }
 
-    /// Local cache path for a managed file (gitignored).
-    ///
-    /// Shared files:         `local/<project>/shared/<label>`
-    /// Service-specific:     `local/<project>/<service>/<label>`
-    /// Preset-specific:      `local/<project>/<service>/<preset>.<label>`
+    /// Local cache path for a managed file.
     pub fn file_local_cache(
         &self,
         service: &str,
@@ -354,19 +402,16 @@ impl ProjectConfig {
         preset: &str,
     ) -> PathBuf {
         if file_cfg.shared {
-            repo_root()
-                .join("local")
-                .join(&self.project_name)
-                .join("shared")
-                .join(&file_cfg.label)
+            self.local_shared_base().join(&file_cfg.label)
         } else {
-            let name = format!("{}.{}", preset, file_cfg.label);
-            repo_root()
-                .join("local")
-                .join(&self.project_name)
-                .join(service)
-                .join(name)
+            self.local_base(service)
+                .join(format!("{}.{}", preset, file_cfg.label))
         }
+    }
+
+    /// List available presets for a service by scanning the local preset directory.
+    pub fn available_presets_for_service(&self, service: &str) -> Vec<String> {
+        available_presets_in_dir(&self.local_base(service))
     }
 }
 
@@ -378,23 +423,18 @@ pub fn fallback_profile_path(service: &str, preset: &str) -> PathBuf {
         .join(format!("{}.env", preset))
 }
 
-/// List available preset names for a service from `local/<project>/<service>/`.
-/// Returns preset names (filenames without .env extension), excluding the generic "local" fallback.
+/// List available preset names for a service by scanning the local preset directory.
+/// Returns preset names (filenames without .env extension), excluding "local" (generic fallback).
 pub fn available_presets(service: &str) -> Vec<String> {
-    let project_name = Settings::load()
-        .map(|s| s.project.project_name.clone())
-        .unwrap_or_default();
-    if project_name.is_empty() {
-        return Vec::new();
-    }
-    available_presets_for_project(service, &project_name)
+    Settings::load()
+        .map(|s| s.project.available_presets_for_service(service))
+        .unwrap_or_default()
 }
 
-/// List available preset names for a service from `local/<project>/<service>/`.
-pub fn available_presets_for_project(service: &str, project_name: &str) -> Vec<String> {
-    let dir = repo_root().join("local").join(project_name).join(service);
+/// Scan a directory for `*.env` preset files, excluding the generic `local.env` fallback.
+pub fn available_presets_in_dir(dir: &std::path::Path) -> Vec<String> {
     let mut presets = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("env")
@@ -529,6 +569,8 @@ fn parse_project(json: &serde_json::Value) -> ProjectConfig {
         sessions: Vec<SessionConfig>,
         #[serde(default)]
         ticket_manager: TicketManagerConfig,
+        #[serde(default)]
+        local_dir: Option<String>,
     }
     #[derive(Deserialize, Default)]
     struct RawProject {
@@ -554,6 +596,7 @@ fn parse_project(json: &serde_json::Value) -> ProjectConfig {
         claude: raw.claude,
         sessions: raw.sessions,
         ticket_manager: raw.ticket_manager,
+        local_dir: raw.local_dir,
     }
 }
 
@@ -580,7 +623,8 @@ mod tests {
         fs::write(local_dir.join("README.md"), "").unwrap(); // non-.env — excluded
 
         crate::test_utils::set_repo_root(repo_root_dir.to_str().unwrap());
-        let presets = available_presets_for_project("my-service", "MyProject");
+        let dir = repo_root_dir.join("local").join("MyProject").join("my-service");
+        let presets = available_presets_in_dir(&dir);
         crate::test_utils::clear_repo_root();
 
         assert_eq!(presets, vec!["dev", "test", "uat"]);

@@ -175,6 +175,8 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
             } else {
                 root.join(&pane_cfg.repo).to_string_lossy().into_owned()
             };
+            let title = if pane_cfg.repo.is_empty() { repo } else { pane_cfg.pane_title() };
+            mux.set_pane_title(&grid[row][col], title).ok();
             mux.send_keys(
                 &grid[row][col],
                 &format!("cd '{}' && {}", sh_escape(&dir), pane_cfg.cmd),
@@ -212,7 +214,8 @@ pub fn run(args: &DevUiArgs, settings: &Settings) -> Result<()> {
         .add("open_pr", "open GitHub PR in browser");
 
     let show_info_fn_cmd = format!(
-        "'{}' show-info --preset '{}' --workspace '{}' --notes {} ||:",
+        "PENV_REPO_ROOT='{}' '{}' show-info --preset '{}' --workspace '{}' --notes {} ||:",
+        sh_escape(&repo_root().to_string_lossy()),
         sh_escape(&penv),
         sh_escape(&preset),
         sh_escape(&ui_dir_s),

@@ -9,25 +9,100 @@
   "services": [
     {
       "name": "demo-api",
-      "description": "Backend API service",
+      "description": "Backend API service — Node.js/Express",
       "env_vars": ["NODE_ENV", "DATABASE_URL", "PORT", "SECRET_KEY"]
     },
     {
       "name": "demo-ui",
-      "description": "Frontend application",
+      "description": "Frontend application — React/Vite",
       "env_vars": ["VITE_API_URL", "NODE_ENV"]
     }
   ],
   "dev_ui": {
     "repo": "demo-ui",
-    "pane_dev_cmd": "npm run dev",
-    "pane_sb_cmd": "npm run storybook"
+    "panes": [
+      {
+        "col": 0,
+        "row": 0,
+        "cmd": "npm install && npm run dev"
+      },
+      {
+        "col": 0,
+        "row": 1,
+        "cmd": "sleep 5 && npm run storybook"
+      },
+      {
+        "col": 1,
+        "row": 1,
+        "cmd": "lazygit"
+      }
+    ]
   },
   "dev_backend": {
     "session_name": "demo-backend",
     "window_backend": [
-      { "repo": "demo-api", "cmd": "npm run dev" }
+      {
+        "repo": "demo-api",
+        "cmd": "npm install && npm run dev"
+      }
     ],
     "window_service": []
+  },
+  "sessions": [
+    {
+      "session_name": "demo-dev",
+      "tabs": [
+        {
+          "name": "app",
+          "panes": [
+            {
+              "repo": "demo-ui",
+              "cmd": "npm install && npm run dev",
+              "col": 0,
+              "row": 0
+            },
+            {
+              "repo": "demo-api",
+              "cmd": "npm install && npm run dev",
+              "col": 1,
+              "row": 0
+            },
+            {
+              "repo": "demo-ui",
+              "cmd": "sleep 5 && npm run storybook",
+              "col": 0,
+              "row": 1
+            },
+            {
+              "repo": "demo-api",
+              "cmd": "lazygit",
+              "col": 1,
+              "row": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "vscode": {
+    "output_file": "demo-project.code-workspace",
+    "peacock_color": "#3b82f6",
+    "extra_settings": {
+      "files.exclude": {
+        "**/.git": true,
+        "**/node_modules": true
+      },
+      "git.autoRepositoryDetection": false
+    },
+    "presets": [
+      {
+        "name": "simple",
+        "folders": ["demo-ui", "demo-api"]
+      }
+    ]
+  },
+  "ticket_manager": {
+    "pattern": "\\d+",
+    "url_template": "https://github.com/your-org/your-repo/issues/{ticket}"
   }
 }

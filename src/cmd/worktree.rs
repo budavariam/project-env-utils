@@ -475,6 +475,120 @@ fn find_worktree_for_branch(repo_dir: &Path, branch: &str) -> Result<Option<Path
     Ok(None)
 }
 
+// ── WorkspaceMode ─────────────────────────────────────────────────────────────
+
+/// How to resolve the working directory for a repo in a dev session.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorkspaceMode {
+    /// Use the root repo at its current checkout.
+    Root,
+    /// Stash and checkout a branch in the root repo.
+    Checkout,
+    /// Open an existing Claude worktree (fzf picker if branch is None).
+    Worktree,
+    /// Create or open a Claude worktree for a specific branch.
+    CheckoutWorktree,
+}
+
+impl WorkspaceMode {
+    pub fn is_worktree(&self) -> bool {
+        matches!(self, Self::Worktree | Self::CheckoutWorktree)
+    }
+}
+
+/// Interactive fzf picker: ask the user to choose a workspace mode.
+pub fn pick_workspace_mode(prompt: &str) -> Result<WorkspaceMode> {
+    let choices = vec![
+        "root — current checkout".to_string(),
+        "checkout — stash + switch branch".to_string(),
+        "worktree — open existing Claude worktree".to_string(),
+        "checkout-worktree — create/open Claude worktree".to_string(),
+    ];
+    let sel = pick_session_fzf_prompt(&choices, prompt)?;
+    eprintln!("  → {}", sel);
+    Ok(if sel.starts_with("worktree") {
+        WorkspaceMode::Worktree
+    } else if sel.starts_with("checkout-worktree") {
+        WorkspaceMode::CheckoutWorktree
+    } else if sel.starts_with("checkout") {
+        WorkspaceMode::Checkout
+    } else {
+        WorkspaceMode::Root
+    })
+}
+
+/// Derive a `WorkspaceMode` from the standard CLI flags used by dev-ui / dev-backend / dev-session.
+/// Returns `None` when all flags are false and no branch is given (= plain root checkout).
+pub fn mode_from_flags(
+    worktree: bool,
+    checkout: bool,
+    checkout_worktree: bool,
+    branch: &Option<String>,
+) -> WorkspaceMode {
+    if worktree {
+        WorkspaceMode::Worktree
+    } else if checkout_worktree {
+        WorkspaceMode::CheckoutWorktree
+    } else if checkout || branch.is_some() {
+        WorkspaceMode::Checkout
+    } else {
+        WorkspaceMode::Root
+    }
+}
+
+/// Resolve the working directory for `repo_dir` according to `mode`.
+/// Returns the path to use as the pane's working directory.
+pub fn resolve_repo_workspace(
+    repo_dir: &Path,
+    mode: &WorkspaceMode,
+    branch: Option<&str>,
+) -> Result<PathBuf> {
+    match mode {
+        WorkspaceMode::Root => Ok(repo_dir.to_path_buf()),
+        WorkspaceMode::Checkout => {
+            let b = match branch {
+                Some(b) => b.to_string(),
+                None => pick_branch_fzf(repo_dir)?,
+            };
+            stash_and_checkout(repo_dir, &b)?;
+            Ok(repo_dir.to_path_buf())
+        }
+        WorkspaceMode::Worktree => {
+            let b = match branch {
+                Some(b) => b.to_string(),
+                None => pick_existing_worktree_fzf(repo_dir)?,
+            };
+            Ok(worktree_or_root(repo_dir, &b))
+        }
+        WorkspaceMode::CheckoutWorktree => {
+            let b = match branch {
+                Some(b) => b.to_string(),
+                None => pick_branch_fzf(repo_dir)?,
+            };
+            ensure_worktree(repo_dir, &b)
+        }
+    }
+}
+
+/// fzf single-select with a custom prompt string.
+fn pick_session_fzf_prompt(items: &[String], prompt: &str) -> Result<String> {
+    let mut fzf = std::process::Command::new("fzf")
+        .args(["--prompt", prompt])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("failed to spawn fzf — is it installed?")?;
+    if let Some(mut stdin) = fzf.stdin.take() {
+        stdin.write_all(items.join("\n").as_bytes()).ok();
+    }
+    let out = fzf.wait_with_output().context("fzf wait failed")?;
+    let sel = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if sel.is_empty() {
+        anyhow::bail!("Nothing selected.");
+    }
+    Ok(sel)
+}
+
 /// Write a close_session-only helper script.
 pub fn write_close_session_script(
     path: &str,
@@ -495,7 +609,8 @@ pub fn write_close_session_script(
         .collect::<Vec<_>>()
         .join(" ");
     let content = format!(
-        "reload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\nopen_ticket() {{ '{}' open-ticket \"$@\"; }}\nopen_pr() {{ '{}' open-pr \"$@\"; }}\n",
+        "export PENV_REPO_ROOT='{}'\nreload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\nopen_ticket() {{ '{}' open-ticket \"$@\"; }}\nopen_pr() {{ '{}' open-pr \"$@\"; }}\n",
+        crate::env_file::sh_escape(&crate::config::repo_root().to_string_lossy()),
         reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset, penv, penv
     );
     std::fs::write(path, content)
@@ -516,6 +631,10 @@ pub fn write_teardown_script(
 ) -> Result<()> {
     let pane_id_fmt = "#{pane_id}";
     let mut lines: Vec<String> = vec![
+        format!(
+            "export PENV_REPO_ROOT='{}'\n",
+            crate::env_file::sh_escape(&crate::config::repo_root().to_string_lossy())
+        ),
         "teardown() {\n".to_string(),
         "  echo \"Stopping processes in worktrees...\"\n".to_string(),
         format!(

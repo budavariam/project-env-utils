@@ -85,14 +85,6 @@
           "type": "string",
           "description": "Repo folder name for the UI service."
         },
-        "pane_dev_cmd": {
-          "type": "string",
-          "description": "Command run in the dev pane (e.g. 'npm run dev')."
-        },
-        "pane_sb_cmd": {
-          "type": "string",
-          "description": "Command run in the Storybook pane (e.g. 'npm run storybook')."
-        },
         "panes": {
           "type": "array",
           "description": "Grid panes for the dev-ui session.",
@@ -272,6 +264,10 @@
           "description": "URL template where {ticket} is replaced with the matched ID. Example: \"https://www.wrike.com/open.htm?id={ticket}\"."
         }
       }
+    },
+    "local_dir": {
+      "type": "string",
+      "description": "Override the directory used to store local preset env files. Absolute path, or relative to the directory containing settings.json. When set, env files are read from '<local_dir>/<service>/<preset>.env' (no project-name subfolder). Defaults to 'local/<project_name>' when absent."
     }
   },
   "$defs": {
@@ -309,6 +305,10 @@
           "type": "string",
           "default": "",
           "description": "Command to run in the pane. Empty = idle shell."
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional pane title shown in the tmux border (requires pane-border-status in tmux.conf). Defaults to 'repo' when absent."
         }
       }
     },
@@ -338,6 +338,10 @@
           "minimum": 0,
           "default": 0,
           "description": "0-based row index."
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional pane title shown in the tmux border (requires pane-border-status in tmux.conf). Defaults to 'repo' when absent."
         }
       }
     },

@@ -9,7 +9,7 @@ use anyhow::Result;
 
 use crate::backend::SecretBackend;
 use crate::cmd::sync::{resolve_use_color, unified_diff};
-use crate::config::{Settings, available_presets_for_project, backups_dir};
+use crate::config::{Settings, backups_dir};
 
 fn timestamp() -> String {
     let dur = std::time::SystemTime::now()
@@ -68,7 +68,7 @@ fn timestamp() -> String {
 }
 
 pub fn run(fix: bool, backend: &dyn SecretBackend, settings: &Settings) -> Result<()> {
-    let project = &settings.project.project_name;
+    let _project = &settings.project.project_name;
     let use_color = resolve_use_color(settings, false);
     let mut any_bad = false;
 
@@ -86,7 +86,7 @@ pub fn run(fix: bool, backend: &dyn SecretBackend, settings: &Settings) -> Resul
         backend.list().into_iter().collect();
 
     for svc in &settings.project.services {
-        let presets = available_presets_for_project(&svc.name, project);
+        let presets = settings.project.available_presets_for_service(&svc.name);
 
         for preset in &presets {
             let local_path = settings.project.preset_local_path(&svc.name, preset);

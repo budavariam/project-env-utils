@@ -222,6 +222,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     // Send commands to backend panes
     for (i, pane_cfg) in cfg.window_backend.iter().enumerate() {
         let dir_s = backend_dirs[i].to_string_lossy().into_owned();
+        mux.set_pane_title(&backend_pane_ids[i], pane_cfg.pane_title()).ok();
         mux.send_keys(
             &backend_pane_ids[i],
             &format!("cd '{}' && {}", sh_escape(&dir_s), pane_cfg.cmd),
@@ -265,7 +266,8 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
         .add("open_pr", "open GitHub PR in browser");
 
     let show_info_fn_cmd = format!(
-        "'{}' show-info --preset '{}' --services {} --notes {} ||:",
+        "PENV_REPO_ROOT='{}' '{}' show-info --preset '{}' --services {} --notes {} ||:",
+        sh_escape(&repo_root().to_string_lossy()),
         sh_escape(&penv),
         sh_escape(&preset),
         services_arg,
@@ -334,6 +336,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
 
         for (i, pane_cfg) in cfg.window_service.iter().enumerate() {
             let dir_s = root.join(&pane_cfg.repo).to_string_lossy().into_owned();
+            mux.set_pane_title(&svc_pane_ids[i], pane_cfg.pane_title()).ok();
             mux.send_keys(
                 &svc_pane_ids[i],
                 &format!("cd '{}' && {}", sh_escape(&dir_s), pane_cfg.cmd),
