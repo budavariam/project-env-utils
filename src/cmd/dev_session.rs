@@ -11,7 +11,7 @@ use crate::cmd::show_info::SessionNotes;
 use crate::cmd::worktree::{
     mode_from_flags, pick_workspace_mode, resolve_repo_workspace,
 };
-use crate::config::{Settings, available_presets, repo_parent, repo_root};
+use crate::config::{Settings, repo_parent, repo_root};
 use crate::env_file::sh_escape;
 use crate::state::get_service_preset;
 use crate::tmux::{active_mux, setup_linked_window};
@@ -122,29 +122,45 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         let p = resolve_backend_preset(None, bref, settings)?;
         all_services.iter().map(|s| (s.clone(), p.clone())).collect()
     } else {
-        // Multiple services without an explicit --preset: ask per service.
+        // Multiple services without an explicit --preset: show numbered list per service.
         use std::io::{self, Write};
         let mut map = std::collections::HashMap::new();
         for svc in &all_services {
             let last = get_service_preset(svc);
-            let avail = available_presets(svc);
+            let avail = settings.project.available_presets_for_service(svc);
             let default = last
                 .as_deref()
                 .map(str::to_string)
                 .or_else(|| avail.first().cloned())
                 .unwrap_or_else(|| "dev".to_string());
-            let hint = if last.is_some() {
-                format!("[{}] (last used)", default)
+
+            eprintln!("\n  Preset for {}:", svc);
+            if avail.is_empty() {
+                eprintln!("  (no presets found — type a name)");
             } else {
-                format!("[{}] (default)", default)
-            };
-            eprint!("  Preset for {} ({})?  Enter preset: ", svc, hint);
-            io::stderr().flush().ok();
-            let mut line = String::new();
-            io::stdin().read_line(&mut line).ok();
-            let chosen = {
+                for (i, p) in avail.iter().enumerate() {
+                    let marker = if last.as_deref() == Some(p.as_str()) { "  ← last used" } else { "" };
+                    eprintln!("    [{}] {}{}", i + 1, p, marker);
+                }
+            }
+            let chosen = loop {
+                eprint!("  Select [1-{}] or name (Enter = {}): ", avail.len().max(1), default);
+                io::stderr().flush().ok();
+                let mut line = String::new();
+                io::stdin().read_line(&mut line).ok();
                 let t = line.trim();
-                if t.is_empty() { default } else { t.to_string() }
+                if t.is_empty() {
+                    break default.clone();
+                }
+                if let Ok(n) = t.parse::<usize>() {
+                    if n >= 1 && n <= avail.len() {
+                        break avail[n - 1].clone();
+                    }
+                }
+                if !t.is_empty() {
+                    break t.to_string();
+                }
+                eprintln!("  Invalid — enter a number or preset name.");
             };
             eprintln!("  {} → {}", svc, chosen);
             map.insert(svc.clone(), chosen);
@@ -302,15 +318,26 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         )
     };
 
-    // Build reload_cmd using per-service presets when they differ.
-    let reload_cmd_str: String = all_services
-        .iter()
-        .map(|svc| {
-            let svc_preset = service_presets.get(svc).map(String::as_str).unwrap_or(&preset);
-            format!("'{}' load-env '{}' '{}'", penv, svc_preset, svc)
-        })
-        .collect::<Vec<_>>()
-        .join(" && ");
+    // Build reload_cmd.
+    // Multiple services: call change-preset per service so each gets its own
+    // interactive preset picker when the user runs reload_env in the shell.
+    // Single service: use the preset chosen at session start (standard behaviour).
+    let reload_cmd_str: String = if all_services.len() > 1 {
+        all_services
+            .iter()
+            .map(|svc| format!("'{}' change-preset '{}'", penv, svc))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    } else {
+        all_services
+            .iter()
+            .map(|svc| {
+                let svc_preset = service_presets.get(svc).map(String::as_str).unwrap_or(&preset);
+                format!("'{}' load-env '{}' '{}'", penv, svc_preset, svc)
+            })
+            .collect::<Vec<_>>()
+            .join(" && ")
+    };
     let reload_cmd_override = if all_services.len() > 1 { Some(reload_cmd_str.as_str()) } else { None };
 
     let tm = &settings.project.ticket_manager;
