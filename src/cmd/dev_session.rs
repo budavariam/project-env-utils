@@ -9,11 +9,11 @@ use crate::cmd::open_ticket::extract_ticket;
 use crate::cmd::pick_preset::resolve_backend_preset;
 use crate::cmd::show_info::SessionNotes;
 use crate::cmd::worktree::{
-    WorkspaceMode, mode_from_flags, pick_workspace_mode, resolve_repo_workspace,
-    write_close_session_script,
+    mode_from_flags, pick_workspace_mode, resolve_repo_workspace,
 };
-use crate::config::{Settings, repo_parent, repo_root};
+use crate::config::{Settings, available_presets, repo_parent, repo_root};
 use crate::env_file::sh_escape;
+use crate::state::get_service_preset;
 use crate::tmux::{active_mux, setup_linked_window};
 
 // ── Public types ───────────────────────────────────────────────────────────────
@@ -92,17 +92,13 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     let backend_box = crate::backend::active_backend(settings);
     let bref = backend_box.as_deref();
 
-    // Sessions with no_preset skip secret resolution and env sync entirely.
-    let preset = if session_cfg.no_preset {
-        args.preset.clone().unwrap_or_default()
-    } else {
-        args.preset
-            .clone()
-            .map(Ok)
-            .unwrap_or_else(|| resolve_backend_preset(None, bref, settings))?
-    };
+    // ── Preset resolution ─────────────────────────────────────────────────────
+    // When --preset is given, use it for all services.
+    // When there are multiple services and no --preset, prompt per service so
+    // each repo can be on a different preset (unlike dev-ui/dev-backend which
+    // only have one service each).
 
-    // Collect unique service names across all tabs for sync check + helper script.
+    // Collect unique services first (needed for preset resolution).
     let all_services: Vec<String> = {
         let mut seen = std::collections::HashSet::new();
         session_cfg
@@ -115,20 +111,70 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
             .collect()
     };
 
-    // ── Workspace mode ────────────────────────────────────────────────────────
-    // Determine how to resolve each repo's working directory.
-    let mode: WorkspaceMode = if args.mixed {
-        eprintln!("Session workspace mode:");
-        pick_workspace_mode("Mode> ")?
+    // service → preset
+    let service_presets: std::collections::HashMap<String, String> = if session_cfg.no_preset {
+        let p = args.preset.clone().unwrap_or_default();
+        all_services.iter().map(|s| (s.clone(), p.clone())).collect()
+    } else if let Some(ref p) = args.preset {
+        all_services.iter().map(|s| (s.clone(), p.clone())).collect()
+    } else if all_services.len() <= 1 {
+        // Single service: use the standard picker (same as dev-backend).
+        let p = resolve_backend_preset(None, bref, settings)?;
+        all_services.iter().map(|s| (s.clone(), p.clone())).collect()
     } else {
-        mode_from_flags(args.worktree, args.checkout, args.checkout_worktree, &args.branch)
+        // Multiple services without an explicit --preset: ask per service.
+        use std::io::{self, Write};
+        let mut map = std::collections::HashMap::new();
+        for svc in &all_services {
+            let last = get_service_preset(svc);
+            let avail = available_presets(svc);
+            let default = last
+                .as_deref()
+                .map(str::to_string)
+                .or_else(|| avail.first().cloned())
+                .unwrap_or_else(|| "dev".to_string());
+            let hint = if last.is_some() {
+                format!("[{}] (last used)", default)
+            } else {
+                format!("[{}] (default)", default)
+            };
+            eprint!("  Preset for {} ({})?  Enter preset: ", svc, hint);
+            io::stderr().flush().ok();
+            let mut line = String::new();
+            io::stdin().read_line(&mut line).ok();
+            let chosen = {
+                let t = line.trim();
+                if t.is_empty() { default } else { t.to_string() }
+            };
+            eprintln!("  {} → {}", svc, chosen);
+            map.insert(svc.clone(), chosen);
+        }
+        map
     };
 
+    // Canonical single preset for helper scripts (first service's, or common if all equal).
+    let preset = service_presets
+        .values()
+        .next()
+        .cloned()
+        .unwrap_or_default();
+
+    // ── Workspace mode ────────────────────────────────────────────────────────
     // Pre-resolve each unique repo's working directory.
+    // --mixed: prompt independently per repo.
+    // Other flags: apply the same mode to all repos.
+    let global_mode = mode_from_flags(args.worktree, args.checkout, args.checkout_worktree, &args.branch);
+
     let repo_dirs: std::collections::HashMap<String, std::path::PathBuf> = {
         let mut map = std::collections::HashMap::new();
         for svc in &all_services {
             let repo_dir = root.join(svc);
+            let mode = if args.mixed {
+                eprintln!("\n[{}] workspace mode:", svc);
+                pick_workspace_mode(&format!("{} mode> ", svc))?
+            } else {
+                global_mode.clone()
+            };
             let resolved = resolve_repo_workspace(&repo_dir, &mode, args.branch.as_deref())
                 .unwrap_or(repo_dir);
             map.insert(svc.clone(), resolved);
@@ -137,9 +183,15 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
     };
 
     if !session_cfg.no_preset {
-        let sync_items: Vec<(&str, Option<&str>)> =
-            all_services.iter().map(|s| (s.as_str(), None)).collect();
-        crate::cmd::morning_check::startup_sync_check(&sync_items, &preset, bref, settings);
+        for svc in &all_services {
+            let svc_preset = service_presets.get(svc).map(String::as_str).unwrap_or(&preset);
+            crate::cmd::morning_check::startup_sync_check(
+                &[(svc.as_str(), None)],
+                svc_preset,
+                bref,
+                settings,
+            );
+        }
         println!();
     }
 
@@ -250,6 +302,17 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         )
     };
 
+    // Build reload_cmd using per-service presets when they differ.
+    let reload_cmd_str: String = all_services
+        .iter()
+        .map(|svc| {
+            let svc_preset = service_presets.get(svc).map(String::as_str).unwrap_or(&preset);
+            format!("'{}' load-env '{}' '{}'", penv, svc_preset, svc)
+        })
+        .collect::<Vec<_>>()
+        .join(" && ");
+    let reload_cmd_override = if all_services.len() > 1 { Some(reload_cmd_str.as_str()) } else { None };
+
     let tm = &settings.project.ticket_manager;
     let has_ticket = tm.is_configured() && {
         // Check first service's current branch for a ticket ID.
@@ -278,13 +341,14 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
         message_arg,
         notes.to_show_info_args(),
     );
-    write_close_session_script(
+    crate::cmd::worktree::write_close_session_script_with_reload(
         &helper_path,
         session,
         &penv,
         &preset,
         &svc_refs,
         &show_info_fn_cmd,
+        reload_cmd_override,
     )?;
     mux.send_keys(
         &helper_pane,

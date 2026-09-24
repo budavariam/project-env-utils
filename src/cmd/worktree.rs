@@ -592,11 +592,29 @@ pub fn write_close_session_script(
     services: &[&str],
     show_info_cmd: &str,
 ) -> Result<()> {
-    let reload_cmd = services
-        .iter()
-        .map(|s| format!("'{}' load-env '{}' '{}'", penv, preset, s))
-        .collect::<Vec<_>>()
-        .join(" && ");
+    write_close_session_script_with_reload(path, session, penv, preset, services, show_info_cmd, None)
+}
+
+/// Like `write_close_session_script` but accepts an optional pre-built reload command.
+/// When `reload_cmd_override` is `Some`, it replaces the generated per-service reload.
+pub fn write_close_session_script_with_reload(
+    path: &str,
+    session: &str,
+    penv: &str,
+    preset: &str,
+    services: &[&str],
+    show_info_cmd: &str,
+    reload_cmd_override: Option<&str>,
+) -> Result<()> {
+    let reload_cmd = if let Some(r) = reload_cmd_override {
+        r.to_string()
+    } else {
+        services
+            .iter()
+            .map(|s| format!("'{}' load-env '{}' '{}'", penv, preset, s))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    };
     let change_preset_cmd = services
         .iter()
         .map(|s| format!("'{}'", s))
