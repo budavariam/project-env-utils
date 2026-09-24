@@ -490,12 +490,6 @@ pub enum WorkspaceMode {
     CheckoutWorktree,
 }
 
-impl WorkspaceMode {
-    pub fn is_worktree(&self) -> bool {
-        matches!(self, Self::Worktree | Self::CheckoutWorktree)
-    }
-}
-
 /// Interactive fzf picker: ask the user to choose a workspace mode.
 pub fn pick_workspace_mode(prompt: &str) -> Result<WorkspaceMode> {
     let choices = vec![
