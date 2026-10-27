@@ -621,9 +621,9 @@ pub fn write_close_session_script_with_reload(
         .collect::<Vec<_>>()
         .join(" ");
     let content = format!(
-        "export PENV_REPO_ROOT='{}'\nreload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\nopen_ticket() {{ '{}' open-ticket \"$@\"; }}\nopen_pr() {{ '{}' open-pr \"$@\"; }}\n",
+        "export PENV_REPO_ROOT='{}'\nreload_env() {{ {}; }}\nchange_preset() {{ '{}' change-preset {}; }}\napply_local_changes() {{ '{}' apply-local {}; }}\nclose_session() {{ tmux kill-session -t \"={}\"; }}\nshow_info() {{ {}; }}\ninspect_env() {{ '{}' env-age --preset '{}' \"$@\"; }}\nopen_ticket() {{ '{}' open-ticket \"$@\"; }}\nopen_pr() {{ '{}' open-pr \"$@\"; }}\n",
         crate::env_file::sh_escape(&crate::config::repo_root().to_string_lossy()),
-        reload_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset, penv, penv
+        reload_cmd, penv, change_preset_cmd, penv, change_preset_cmd, session, show_info_cmd, penv, preset, penv, penv
     );
     std::fs::write(path, content)
         .with_context(|| format!("failed to write helper script to {}", path))?;
@@ -696,6 +696,10 @@ pub fn write_teardown_script(
     lines.push(format!("reload_env() {{ {}; }}\n", reload_cmd));
     lines.push(format!(
         "change_preset() {{ '{}' change-preset {}; }}\n",
+        penv, change_preset_services
+    ));
+    lines.push(format!(
+        "apply_local_changes() {{ '{}' apply-local {}; }}\n",
         penv, change_preset_services
     ));
     lines.push(format!("show_info() {{ {}; }}\n", show_info_cmd));

@@ -257,6 +257,7 @@ pub fn run(args: &DevBackendArgs, settings: &Settings) -> Result<()> {
     let notes = SessionNotes::new()
         .add_if(is_worktree, "teardown", "remove worktrees & close session")
         .add("reload_env", "reload .env from current preset")
+        .add("apply_local_changes", "push local cache to backend & reload")
         .add("change_preset", "switch preset")
         .add_if(is_worktree, "close_session", "close session only")
         .add_if(!is_worktree, "close_session", "close session")

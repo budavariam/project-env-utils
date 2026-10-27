@@ -83,6 +83,13 @@ enum Command {
     /// Interactive start-of-day sync check
     MorningCheck,
 
+    /// Push the local cache of each service's active preset to the backend, then reload .env
+    ApplyLocal {
+        /// Services to apply (defaults to all configured services)
+        #[arg(num_args = 0..)]
+        services: Vec<String>,
+    },
+
     /// Interactively switch to a different preset and reload .env files
     ChangePreset {
         /// Services to reload (defaults to all configured services)
@@ -367,6 +374,17 @@ fn main() {
         },
 
         Command::MorningCheck => cmd::morning_check::run(&settings),
+
+        Command::ApplyLocal { services } => {
+            let backend_box = crate::backend::active_backend(&settings);
+            match backend_box.as_deref() {
+                Some(b) => cmd::apply_local::run(services, b, &settings),
+                None => {
+                    eprintln!("No backend configured (set secret_backend in settings.json).");
+                    std::process::exit(1);
+                }
+            }
+        }
 
         Command::ChangePreset { services } => cmd::change_preset::run(services, &settings),
 

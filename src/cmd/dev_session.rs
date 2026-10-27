@@ -352,6 +352,7 @@ pub fn run(args: &DevSessionArgs, settings: &Settings) -> Result<()> {
 
     let notes = SessionNotes::new()
         .add("reload_env", "reload .env from current preset")
+        .add("apply_local_changes", "push local cache to backend & reload")
         .add("change_preset", "switch preset")
         .add("close_session", "close session")
         .add("show_info", "re-display this box")

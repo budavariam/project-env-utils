@@ -11,7 +11,7 @@ use crate::backend::SecretBackend;
 use crate::cmd::sync::{resolve_use_color, unified_diff};
 use crate::config::{Settings, backups_dir};
 
-fn timestamp() -> String {
+pub(crate) fn timestamp() -> String {
     let dur = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
